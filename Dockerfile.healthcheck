@@ -1,0 +1,20 @@
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy health check script
+COPY healthz.ts ./
+
+# Install TypeScript and ts-node for running TypeScript directly
+RUN npm install -g typescript ts-node
+
+# Use existing node user for security
+USER node
+
+EXPOSE 3001
+
+CMD ["ts-node", "healthz.ts"]

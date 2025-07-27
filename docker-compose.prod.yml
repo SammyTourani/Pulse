@@ -1,0 +1,209 @@
+# Production Docker Compose Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  postgres:
+    # Production-specific PostgreSQL settings
+    environment:
+      # Enhanced logging for production monitoring
+      POSTGRES_LOG_STATEMENT: 'all'
+      POSTGRES_LOG_MIN_DURATION_STATEMENT: '1000'
+    # Remove port exposure for security
+    ports: []
+
+  n8n:
+    # Production security settings
+    environment:
+      # Enable secure cookies for HTTPS (Requirement 2.2)
+      N8N_SECURE_COOKIE: true
+
+      # Disable UI credential editing for security (Requirement 2.4)
+      N8N_DISABLE_UI: true
+
+      # Production process settings
+      N8N_DISABLE_PRODUCTION_MAIN_PROCESS: false
+
+      # Enhanced security settings (Requirement 2.2)
+      N8N_COOKIES_SECURE: true
+      N8N_SESSION_COOKIE_SECURE: true
+      N8N_SESSION_COOKIE_SAME_SITE: strict
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+
+      # Privacy settings (Requirement 2.3)
+      N8N_DIAGNOSTICS_ENABLED: false
+      N8N_VERSION_NOTIFICATIONS_ENABLED: false
+      N8N_PERSONALIZATION_ENABLED: false
+
+      # Security monitoring
+      N8N_METRICS: true
+      N8N_LOG_LEVEL: info
+      N8N_SECURITY_AUDIT_EVENTS: true
+
+      # Data retention (Requirement 2.3)
+      EXECUTIONS_DATA_MAX_AGE: 168 # 7 days
+      EXECUTIONS_DATA_PRUNE: true
+      N8N_DEFAULT_BINARY_DATA_MODE: filesystem
+      N8N_BINARY_DATA_TTL: 24
+
+      # Performance settings
+      N8N_PAYLOAD_SIZE_MAX: 16 # 16MB max payload
+
+      # Security environment
+      NODE_ENV: production
+
+    # Remove direct port exposure (Caddy handles this)
+    ports: []
+
+    # Security: Additional volumes for security configurations
+    volumes:
+      - ./security:/home/node/.n8n/security:ro
+
+    # Security: Read-only root filesystem except for data directory
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/node/.n8n/logs
+
+    # Security: Drop all capabilities
+    cap_drop:
+      - ALL
+
+    # Security: No new privileges
+    security_opt:
+      - no-new-privileges:true
+
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+    # Enhanced health check for production
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:5678/healthz || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  healthcheck:
+    # Remove direct port exposure
+    ports: []
+
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+          cpus: '0.05'
+
+  # Caddy reverse proxy with auto-TLS
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+      - '2019:2019' # Admin API (optional, can be removed)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    environment:
+      # Domain configuration
+      DOMAIN: ${DOMAIN:-pulse.yourdomain.com}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@yourdomain.com}
+
+      # Caddy configuration
+      CADDY_ADMIN: localhost:2019
+    depends_on:
+      n8n:
+        condition: service_healthy
+      healthcheck:
+        condition: service_started
+    networks:
+      - pulse-network
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.2'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
+    # Health check for Caddy
+    healthcheck:
+      test: ['CMD', 'caddy', 'version']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Log aggregation service (optional)
+  loki:
+    image: grafana/loki:2.9.0
+    restart: unless-stopped
+    ports:
+      - '3100:3100'
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - pulse-network
+    profiles:
+      - monitoring
+
+  # Metrics collection (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - pulse-network
+    profiles:
+      - monitoring
+
+volumes:
+  # Caddy persistent volumes
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  caddy_logs:
+    driver: local
+
+  # Monitoring volumes (optional)
+  loki_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+# Production network with custom subnet
+networks:
+  pulse-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

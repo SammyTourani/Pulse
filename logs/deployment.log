@@ -1,0 +1,129 @@
+{"timestamp":"2025-07-26T20:22:29.413Z","level":"info","message":"Loaded workflow file: gmail_gemini_sms_workflow_enhanced.json","data":{"size":34444,"nodes":11}}
+{"timestamp":"2025-07-26T20:22:29.417Z","level":"info","message":"Validating workflow structure and requirements","data":{}}
+{"timestamp":"2025-07-26T20:22:29.417Z","level":"info","message":"✅ Requirement 1.1 validated: Gmail trigger for new messages","data":{}}
+{"timestamp":"2025-07-26T20:22:29.417Z","level":"info","message":"✅ Requirement 1.2 validated: Email content processing","data":{}}
+{"timestamp":"2025-07-26T20:22:29.417Z","level":"info","message":"✅ Requirement 1.3 validated: Gemini API integration with timeout","data":{}}
+{"timestamp":"2025-07-26T20:22:29.417Z","level":"info","message":"✅ Requirement 1.4 validated: Gmail draft creation","data":{}}
+{"timestamp":"2025-07-26T20:22:29.417Z","level":"info","message":"✅ Requirement 1.8 validated: Thread context preservation","data":{}}
+{"timestamp":"2025-07-26T20:22:29.417Z","level":"info","message":"✅ Requirement 3.1 validated: SMS notification capability","data":{}}
+{"timestamp":"2025-07-26T20:22:29.418Z","level":"info","message":"✅ Requirement 3.2 validated: SMS content preparation","data":{}}
+{"timestamp":"2025-07-26T20:22:29.418Z","level":"success","message":"All 7 requirements validated","data":{}}
+{"timestamp":"2025-07-26T20:22:57.032Z","level":"info","message":"Loaded workflow file: gmail_gemini_sms_workflow_enhanced.json","data":{"size":34444,"nodes":11}}
+{"timestamp":"2025-07-26T20:22:57.036Z","level":"info","message":"Validating workflow structure and requirements","data":{}}
+{"timestamp":"2025-07-26T20:22:57.036Z","level":"info","message":"✅ Requirement 1.1 validated: Gmail trigger for new messages","data":{}}
+{"timestamp":"2025-07-26T20:22:57.036Z","level":"info","message":"✅ Requirement 1.2 validated: Email content processing","data":{}}
+{"timestamp":"2025-07-26T20:22:57.036Z","level":"info","message":"✅ Requirement 1.3 validated: Gemini API integration with timeout","data":{}}
+{"timestamp":"2025-07-26T20:22:57.036Z","level":"info","message":"✅ Requirement 1.4 validated: Gmail draft creation","data":{}}
+{"timestamp":"2025-07-26T20:22:57.036Z","level":"info","message":"✅ Requirement 1.8 validated: Thread context preservation","data":{}}
+{"timestamp":"2025-07-26T20:22:57.036Z","level":"info","message":"✅ Requirement 3.1 validated: SMS notification capability","data":{}}
+{"timestamp":"2025-07-26T20:22:57.037Z","level":"info","message":"✅ Requirement 3.2 validated: SMS content preparation","data":{}}
+{"timestamp":"2025-07-26T20:22:57.037Z","level":"success","message":"All 7 requirements validated","data":{}}
+{"timestamp":"2025-07-26T20:22:57.037Z","level":"info","message":"Connection validation passed","data":{}}
+{"timestamp":"2025-07-26T20:22:57.037Z","level":"success","message":"Workflow validation passed","data":{}}
+{"timestamp":"2025-07-26T20:23:06.304Z","level":"info","message":"Starting workflow import: gmail-gemini-sms","data":{"options":{"dryRun":true,"skipHealthCheck":true}}}
+{"timestamp":"2025-07-26T20:23:06.304Z","level":"info","message":"Loaded workflow file: gmail_gemini_sms_workflow_enhanced.json","data":{"size":34444,"nodes":11}}
+{"timestamp":"2025-07-26T20:23:06.304Z","level":"info","message":"Validating workflow structure and requirements","data":{}}
+{"timestamp":"2025-07-26T20:23:06.304Z","level":"info","message":"✅ Requirement 1.1 validated: Gmail trigger for new messages","data":{}}
+{"timestamp":"2025-07-26T20:23:06.304Z","level":"info","message":"✅ Requirement 1.2 validated: Email content processing","data":{}}
+{"timestamp":"2025-07-26T20:23:06.304Z","level":"info","message":"✅ Requirement 1.3 validated: Gemini API integration with timeout","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"info","message":"✅ Requirement 1.4 validated: Gmail draft creation","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"info","message":"✅ Requirement 1.8 validated: Thread context preservation","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"info","message":"✅ Requirement 3.1 validated: SMS notification capability","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"info","message":"✅ Requirement 3.2 validated: SMS content preparation","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"success","message":"All 7 requirements validated","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"info","message":"Connection validation passed","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"success","message":"Workflow validation passed","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"info","message":"Checking for existing workflow: gmail-gemini-sms","data":{}}
+{"timestamp":"2025-07-26T20:23:06.305Z","level":"info","message":"Dry run completed - no changes made","data":{}}
+{"timestamp":"2025-07-27T02:14:58.041Z","level":"info","message":"Starting workflow import: gmail-gemini-sms","data":{"options":{}}}
+{"timestamp":"2025-07-27T02:14:58.046Z","level":"info","message":"Loaded workflow file: gmail_gemini_sms_workflow_enhanced.json","data":{"size":34444,"nodes":11}}
+{"timestamp":"2025-07-27T02:14:58.046Z","level":"info","message":"Validating workflow structure and requirements","data":{}}
+{"timestamp":"2025-07-27T02:14:58.047Z","level":"info","message":"✅ Requirement 1.1 validated: Gmail trigger for new messages","data":{}}
+{"timestamp":"2025-07-27T02:14:58.047Z","level":"info","message":"✅ Requirement 1.2 validated: Email content processing","data":{}}
+{"timestamp":"2025-07-27T02:14:58.047Z","level":"info","message":"✅ Requirement 1.3 validated: Gemini API integration with timeout","data":{}}
+{"timestamp":"2025-07-27T02:14:58.047Z","level":"info","message":"✅ Requirement 1.4 validated: Gmail draft creation","data":{}}
+{"timestamp":"2025-07-27T02:14:58.047Z","level":"info","message":"✅ Requirement 1.8 validated: Thread context preservation","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"info","message":"✅ Requirement 3.1 validated: SMS notification capability","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"info","message":"✅ Requirement 3.2 validated: SMS content preparation","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"success","message":"All 7 requirements validated","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"info","message":"Connection validation passed","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"success","message":"Workflow validation passed","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"info","message":"Checking for existing workflow: gmail-gemini-sms","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"info","message":"Deploying workflow to n8n: Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"success","message":"Workflow deployed to n8n","data":{"workflowId":"workflow_1753582498048","name":"Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","nodes":11,"method":"created"}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"info","message":"Running health checks for workflow: workflow_1753582498048","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"success","message":"Health check passed: gmail-trigger-active","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"success","message":"Health check passed: gemini-api-responsive","data":{}}
+{"timestamp":"2025-07-27T02:14:58.048Z","level":"success","message":"Health check passed: twilio-sms-enabled","data":{}}
+{"timestamp":"2025-07-27T02:14:58.049Z","level":"success","message":"Health check passed: workflow-executable","data":{}}
+{"timestamp":"2025-07-27T02:14:58.049Z","level":"success","message":"Health checks completed: 4/4 passed","data":{}}
+{"timestamp":"2025-07-27T02:14:58.049Z","level":"success","message":"Workflow imported successfully: gmail-gemini-sms","data":{"workflowId":"workflow_1753582498048","version":"1.0.0","healthChecks":4}}
+{"timestamp":"2025-07-27T02:20:58.723Z","level":"info","message":"Starting workflow import: gmail-gemini-sms","data":{"options":{}}}
+{"timestamp":"2025-07-27T02:20:58.729Z","level":"info","message":"Loaded workflow file: gmail_gemini_sms_workflow_enhanced.json","data":{"size":34444,"nodes":11}}
+{"timestamp":"2025-07-27T02:20:58.729Z","level":"info","message":"Validating workflow structure and requirements","data":{}}
+{"timestamp":"2025-07-27T02:20:58.729Z","level":"info","message":"✅ Requirement 1.1 validated: Gmail trigger for new messages","data":{}}
+{"timestamp":"2025-07-27T02:20:58.729Z","level":"info","message":"✅ Requirement 1.2 validated: Email content processing","data":{}}
+{"timestamp":"2025-07-27T02:20:58.729Z","level":"info","message":"✅ Requirement 1.3 validated: Gemini API integration with timeout","data":{}}
+{"timestamp":"2025-07-27T02:20:58.730Z","level":"info","message":"✅ Requirement 1.4 validated: Gmail draft creation","data":{}}
+{"timestamp":"2025-07-27T02:20:58.730Z","level":"info","message":"✅ Requirement 1.8 validated: Thread context preservation","data":{}}
+{"timestamp":"2025-07-27T02:20:58.730Z","level":"info","message":"✅ Requirement 3.1 validated: SMS notification capability","data":{}}
+{"timestamp":"2025-07-27T02:20:58.730Z","level":"info","message":"✅ Requirement 3.2 validated: SMS content preparation","data":{}}
+{"timestamp":"2025-07-27T02:20:58.730Z","level":"success","message":"All 7 requirements validated","data":{}}
+{"timestamp":"2025-07-27T02:20:58.730Z","level":"info","message":"Connection validation passed","data":{}}
+{"timestamp":"2025-07-27T02:20:58.730Z","level":"success","message":"Workflow validation passed","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"info","message":"Checking for existing workflow: gmail-gemini-sms","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"info","message":"Deploying workflow to n8n: Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"success","message":"Workflow deployed to n8n","data":{"workflowId":"workflow_1753582858731","name":"Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","nodes":11,"method":"created"}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"info","message":"Running health checks for workflow: workflow_1753582858731","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"success","message":"Health check passed: gmail-trigger-active","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"success","message":"Health check passed: gemini-api-responsive","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"success","message":"Health check passed: twilio-sms-enabled","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"success","message":"Health check passed: workflow-executable","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"success","message":"Health checks completed: 4/4 passed","data":{}}
+{"timestamp":"2025-07-27T02:20:58.731Z","level":"success","message":"Workflow imported successfully: gmail-gemini-sms","data":{"workflowId":"workflow_1753582858731","version":"1.0.0","healthChecks":4}}
+{"timestamp":"2025-07-27T02:21:12.725Z","level":"info","message":"Starting workflow import: gmail-gemini-sms","data":{"options":{}}}
+{"timestamp":"2025-07-27T02:21:12.730Z","level":"info","message":"Loaded workflow file: gmail_gemini_sms_workflow_enhanced.json","data":{"size":34444,"nodes":11}}
+{"timestamp":"2025-07-27T02:21:12.730Z","level":"info","message":"Validating workflow structure and requirements","data":{}}
+{"timestamp":"2025-07-27T02:21:12.731Z","level":"info","message":"✅ Requirement 1.1 validated: Gmail trigger for new messages","data":{}}
+{"timestamp":"2025-07-27T02:21:12.731Z","level":"info","message":"✅ Requirement 1.2 validated: Email content processing","data":{}}
+{"timestamp":"2025-07-27T02:21:12.731Z","level":"info","message":"✅ Requirement 1.3 validated: Gemini API integration with timeout","data":{}}
+{"timestamp":"2025-07-27T02:21:12.731Z","level":"info","message":"✅ Requirement 1.4 validated: Gmail draft creation","data":{}}
+{"timestamp":"2025-07-27T02:21:12.731Z","level":"info","message":"✅ Requirement 1.8 validated: Thread context preservation","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"info","message":"✅ Requirement 3.1 validated: SMS notification capability","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"info","message":"✅ Requirement 3.2 validated: SMS content preparation","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"success","message":"All 7 requirements validated","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"info","message":"Connection validation passed","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"success","message":"Workflow validation passed","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"info","message":"Checking for existing workflow: gmail-gemini-sms","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"info","message":"Deploying workflow to n8n: Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","data":{}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"success","message":"Workflow deployed to n8n","data":{"workflowId":"workflow_1753582872732","name":"Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","nodes":11,"method":"created"}}
+{"timestamp":"2025-07-27T02:21:12.732Z","level":"info","message":"Running health checks for workflow: workflow_1753582872732","data":{}}
+{"timestamp":"2025-07-27T02:21:12.733Z","level":"success","message":"Health check passed: gmail-trigger-active","data":{}}
+{"timestamp":"2025-07-27T02:21:12.733Z","level":"success","message":"Health check passed: gemini-api-responsive","data":{}}
+{"timestamp":"2025-07-27T02:21:12.733Z","level":"success","message":"Health check passed: twilio-sms-enabled","data":{}}
+{"timestamp":"2025-07-27T02:21:12.733Z","level":"success","message":"Health check passed: workflow-executable","data":{}}
+{"timestamp":"2025-07-27T02:21:12.733Z","level":"success","message":"Health checks completed: 4/4 passed","data":{}}
+{"timestamp":"2025-07-27T02:21:12.733Z","level":"success","message":"Workflow imported successfully: gmail-gemini-sms","data":{"workflowId":"workflow_1753582872732","version":"1.0.0","healthChecks":4}}
+{"timestamp":"2025-07-27T02:21:55.450Z","level":"info","message":"Starting workflow import: gmail-gemini-sms","data":{"options":{}}}
+{"timestamp":"2025-07-27T02:21:55.454Z","level":"info","message":"Loaded workflow file: gmail_gemini_sms_workflow_enhanced.json","data":{"size":34444,"nodes":11}}
+{"timestamp":"2025-07-27T02:21:55.454Z","level":"info","message":"Validating workflow structure and requirements","data":{}}
+{"timestamp":"2025-07-27T02:21:55.454Z","level":"info","message":"✅ Requirement 1.1 validated: Gmail trigger for new messages","data":{}}
+{"timestamp":"2025-07-27T02:21:55.455Z","level":"info","message":"✅ Requirement 1.2 validated: Email content processing","data":{}}
+{"timestamp":"2025-07-27T02:21:55.455Z","level":"info","message":"✅ Requirement 1.3 validated: Gemini API integration with timeout","data":{}}
+{"timestamp":"2025-07-27T02:21:55.455Z","level":"info","message":"✅ Requirement 1.4 validated: Gmail draft creation","data":{}}
+{"timestamp":"2025-07-27T02:21:55.455Z","level":"info","message":"✅ Requirement 1.8 validated: Thread context preservation","data":{}}
+{"timestamp":"2025-07-27T02:21:55.455Z","level":"info","message":"✅ Requirement 3.1 validated: SMS notification capability","data":{}}
+{"timestamp":"2025-07-27T02:21:55.455Z","level":"info","message":"✅ Requirement 3.2 validated: SMS content preparation","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"All 7 requirements validated","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"info","message":"Connection validation passed","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Workflow validation passed","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"info","message":"Checking for existing workflow: gmail-gemini-sms","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"info","message":"Deploying workflow to n8n: Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Workflow deployed to n8n","data":{"workflowId":"workflow_1753582915456","name":"Gmail to Gemini to SMS Workflow (Enhanced Error Handling)","nodes":11,"method":"created"}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"info","message":"Running health checks for workflow: workflow_1753582915456","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Health check passed: gmail-trigger-active","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Health check passed: gemini-api-responsive","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Health check passed: twilio-sms-enabled","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Health check passed: workflow-executable","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Health checks completed: 4/4 passed","data":{}}
+{"timestamp":"2025-07-27T02:21:55.456Z","level":"success","message":"Workflow imported successfully: gmail-gemini-sms","data":{"workflowId":"workflow_1753582915456","version":"1.0.0","healthChecks":4}}

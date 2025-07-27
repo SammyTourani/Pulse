@@ -1,0 +1,306 @@
+{
+  "name": "Gmail to Gemini to SMS Workflow (Fixed)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "includeSpamTrash": false,
+          "readStatus": "unread"
+        },
+        "format": "resolved"
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth",
+          "name": "Gmail OAuth"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Email Processing with Basic Error Handling\nconst { createLogger } = require('./logging-config.js');\nconst logger = createLogger('ProcessEmail');\n\ntry {\n  const emailData = $input.all()[0].json;\n  \n  logger.info('Starting email processing', {\n    messageId: emailData.id,\n    subject: emailData.subject\n  });\n\n  // Convert HTML to plain text if needed\n  function htmlToText(html) {\n    try {\n      if (!html) return '';\n      return html\n        .replace(/<[^>]*>/g, '')\n        .replace(/&nbsp;/g, ' ')\n        .replace(/&amp;/g, '&')\n        .replace(/&lt;/g, '<')\n        .replace(/&gt;/g, '>')\n        .replace(/&quot;/g, '\"')\n        .trim();\n    } catch (error) {\n      logger.warn('HTML conversion failed', { error: error.message });\n      return html || '';\n    }\n  }\n\n  // Check for large attachments (>1MB)\n  let hasLargeAttachments = false;\n  try {\n    hasLargeAttachments = emailData.attachments && \n      emailData.attachments.some(att => att.size > 1048576);\n  } catch (error) {\n    logger.warn('Error checking attachments', { error: error.message });\n  }\n\n  // Process email body\n  let emailBody = '';\n  try {\n    emailBody = emailData.snippet || emailData.textPlain || htmlToText(emailData.textHtml) || '';\n  } catch (error) {\n    logger.warn('Error processing email body', { error: error.message });\n    emailBody = 'Unable to process email content';\n  }\n\n  // Truncate very long emails for Gemini processing\n  if (emailBody.length > 2000) {\n    emailBody = emailBody.substring(0, 2000) + '... [truncated]';\n    logger.info('Email body truncated for processing');\n  }\n\n  // Create prompt for Gemini\n  const prompt = `Please write a professional email response to the following email:\n\nFrom: ${emailData.from}\nSubject: ${emailData.subject}\n\nEmail content:\n${emailBody}\n\nPlease provide a concise, helpful response that addresses the sender's needs. Keep it professional and friendly.`;\n\n  logger.info('Email processing completed successfully');\n\n  return {\n    json: {\n      originalEmail: {\n        messageId: emailData.id,\n        threadId: emailData.threadId,\n        from: emailData.from,\n        subject: emailData.subject,\n        body: emailBody,\n        hasLargeAttachments: hasLargeAttachments\n      },\n      geminiPrompt: prompt,\n      timestamp: new Date().toISOString(),\n      error: false\n    }\n  };\n\n} catch (error) {\n  const logger = createLogger('ProcessEmail');\n  logger.error('Email processing failed', { error: error.message });\n  \n  return {\n    json: {\n      error: true,\n      message: error.message,\n      originalEmail: {\n        messageId: 'unknown',\n        subject: 'Processing Error'\n      },\n      geminiPrompt: 'Error processing email',\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
+      },
+      "id": "process-email",
+      "name": "Process Email Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "=[{\"parts\": [{\"text\": \"{{ $json.geminiPrompt }}\"}]}]"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3,
+            "waitBetween": 2000
+          }
+        }
+      },
+      "id": "gemini-request",
+      "name": "Gemini API Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini-api",
+          "name": "Gemini API"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Response Extraction with Error Handling\nconst { createLogger } = require('./logging-config.js');\nconst logger = createLogger('ExtractResponse');\n\ntry {\n  const geminiResponse = $input.all()[0].json;\n  const emailData = $('Process Email Content').all()[0].json.originalEmail;\n\n  logger.info('Starting response extraction');\n\n  // Extract generated text from Gemini response\n  let generatedText = '';\n  try {\n    if (geminiResponse.candidates && geminiResponse.candidates[0]) {\n      generatedText = geminiResponse.candidates[0].content.parts[0].text;\n    } else {\n      throw new Error('Invalid Gemini response structure');\n    }\n  } catch (error) {\n    logger.error('Error extracting Gemini response', { error: error.message });\n    generatedText = 'I apologize, but I was unable to generate a response at this time. Please reply manually.';\n  }\n\n  // Add attachment note if needed\n  if (emailData.hasLargeAttachments) {\n    generatedText += '\\n\\n[Note: Large attachments were omitted from this automated response]';\n  }\n\n  logger.info('Response extraction completed successfully');\n\n  return {\n    json: {\n      draftContent: generatedText,\n      originalEmail: emailData,\n      responseGenerated: true,\n      timestamp: new Date().toISOString(),\n      error: false\n    }\n  };\n\n} catch (error) {\n  const logger = createLogger('ExtractResponse');\n  logger.error('Response extraction failed', { error: error.message });\n  \n  return {\n    json: {\n      error: true,\n      message: error.message,\n      draftContent: 'Error generating response',\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
+      },
+      "id": "extract-response",
+      "name": "Extract Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "operation": "draft",
+        "messageId": "={{ $json.originalEmail.messageId }}",
+        "subject": "Re: {{ $json.originalEmail.subject }}",
+        "message": "={{ $json.draftContent }}",
+        "replyToSenderOnly": true
+      },
+      "id": "create-draft",
+      "name": "Create Gmail Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth",
+          "name": "Gmail OAuth"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced SMS Rate Limiting with Error Handling\nconst { createLogger, WorkflowDataRetryHandler } = require('./logging-config.js');\nconst { retryDatabaseOperation } = require('./database-retry-utils.js');\nconst logger = createLogger('SMSRateLimit');\n\ntry {\n  const emailData = $input.all()[0].json.originalEmail;\n  const workflowData = new WorkflowDataRetryHandler($workflow);\n\n  logger.info('Starting SMS rate limit check');\n\n  // Get SMS limits from environment\n  const dailyLimit = parseInt(process.env.SMS_DAILY_LIMIT) || 50;\n  const perRunLimit = parseInt(process.env.SMS_PER_RUN_LIMIT) || 3;\n  const userPhone = process.env.USER_PHONE_NUMBER;\n\n  if (!userPhone) {\n    logger.info('SMS skipped - no phone number configured');\n    return {\n      json: {\n        shouldSend: false,\n        reason: 'No phone number configured',\n        rateLimitInfo: { dailyLimit, perRunLimit, currentCount: 0 }\n      }\n    };\n  }\n\n  // Get daily SMS count with retry\n  const today = new Date().toISOString().split('T')[0];\n  const countKey = `sms_count_${today}`;\n  \n  let dailyCount = 0;\n  try {\n    dailyCount = await workflowData.getStaticData(countKey) || 0;\n  } catch (error) {\n    logger.warn('Could not retrieve SMS count, using 0', { error: error.message });\n  }\n\n  // Check daily limit\n  if (dailyCount >= dailyLimit) {\n    logger.warn('Daily SMS limit reached', { dailyCount, dailyLimit });\n    return {\n      json: {\n        shouldSend: false,\n        reason: 'Daily limit reached',\n        rateLimitInfo: { dailyLimit, perRunLimit, currentCount: dailyCount }\n      }\n    };\n  }\n\n  // Update count\n  try {\n    await workflowData.setStaticData(countKey, dailyCount + 1);\n  } catch (error) {\n    logger.warn('Could not update SMS count', { error: error.message });\n  }\n\n  // Create SMS message\n  let smsMessage = `Draft ready: ${emailData.subject}`;\n  if (emailData.from) {\n    const fromName = emailData.from.split('<')[0].trim() || emailData.from;\n    smsMessage += ` (from ${fromName})`;\n  }\n\n  if (emailData.hasLargeAttachments) {\n    smsMessage += ' - Attachments omitted';\n  }\n\n  // Truncate if too long for SMS\n  if (smsMessage.length > 160) {\n    smsMessage = smsMessage.substring(0, 157) + '...';\n  }\n\n  logger.info('SMS approved for sending');\n\n  return {\n    json: {\n      smsMessage: smsMessage,\n      shouldSend: true,\n      userPhone: userPhone,\n      rateLimitInfo: {\n        dailyLimit: dailyLimit,\n        perRunLimit: perRunLimit,\n        currentCount: dailyCount + 1\n      }\n    }\n  };\n\n} catch (error) {\n  const logger = createLogger('SMSRateLimit');\n  logger.error('SMS rate limit check failed', { error: error.message });\n  \n  return {\n    json: {\n      shouldSend: false,\n      reason: `Error: ${error.message}`,\n      error: true\n    }\n  };\n}"
+      },
+      "id": "prepare-sms",
+      "name": "Prepare SMS Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "should-send-sms",
+              "leftValue": "={{ $json.shouldSend }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "sms-gate",
+      "name": "SMS Rate Limit Gate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "message": "={{ $json.smsMessage }}",
+        "toPhoneNumber": "={{ $json.userPhone }}",
+        "fromPhoneNumber": "={{ $env.TWILIO_FROM_NUMBER }}",
+        "options": {
+          "statusCallback": ""
+        }
+      },
+      "id": "send-sms",
+      "name": "Send SMS Notification",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1780, 200],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-api",
+          "name": "Twilio API"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced SMS Skip Logging\nconst { createLogger } = require('./logging-config.js');\nconst logger = createLogger('SMSSkip');\n\ntry {\n  const rateLimitInfo = $input.all()[0].json.rateLimitInfo;\n  const reason = $input.all()[0].json.reason;\n\n  logger.info('SMS notification skipped', {\n    reason: reason,\n    currentCount: rateLimitInfo?.currentCount,\n    perRunLimit: rateLimitInfo?.perRunLimit,\n    dailyLimit: rateLimitInfo?.dailyLimit\n  });\n\n  return {\n    json: {\n      smsSkipped: true,\n      reason: reason,\n      rateLimitInfo: rateLimitInfo,\n      timestamp: new Date().toISOString()\n    }\n  };\n\n} catch (error) {\n  const logger = createLogger('SMSSkip');\n  logger.error('Error in SMS skip logging', { error: error.message });\n  \n  return {\n    json: {\n      smsSkipped: true,\n      error: true,\n      message: error.message,\n      timestamp: new Date().toISOString()\n    }\n  };\n}"
+      },
+      "id": "log-sms-skip",
+      "name": "Log SMS Skip",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 400],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Process Email Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Email Content": {
+      "main": [
+        [
+          {
+            "node": "Gemini API Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini API Request": {
+      "main": [
+        [
+          {
+            "node": "Extract Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Create Gmail Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Gmail Draft": {
+      "main": [
+        [
+          {
+            "node": "Prepare SMS Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare SMS Notification": {
+      "main": [
+        [
+          {
+            "node": "SMS Rate Limit Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMS Rate Limit Gate": {
+      "main": [
+        [
+          {
+            "node": "Send SMS Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log SMS Skip",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  ],
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "",
+    "timezone": "America/New_York"
+  },
+  "versionId": "2",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "gmail-gemini-sms-workflow-fixed",
+  "tags": [
+    {
+      "createdAt": "2025-01-26T00:00:00.000Z",
+      "updatedAt": "2025-01-26T00:00:00.000Z",
+      "id": "pulse-ai-fixed",
+      "name": "pulse-ai-fixed"
+    }
+  ]
+}

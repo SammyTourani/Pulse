@@ -1,0 +1,129 @@
+{
+  "name": "Gmail to Gemini to SMS Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "includeSpamTrash": false,
+          "readStatus": "unread"
+        },
+        "format": "resolved"
+      },
+      "id": "gmail-trigger",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth",
+          "name": "Gmail OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and process email content\nconst emailData = $input.all()[0].json;\n\n// Convert HTML to plain text if needed\nfunction htmlToText(html) {\n  if (!html) return '';\n  return html\n    .replace(/<[^>]*>/g, '')\n    .replace(/&nbsp;/g, ' ')\n    .replace(/&amp;/g, '&')\n    .replace(/&lt;/g, '<')\n    .replace(/&gt;/g, '>')\n    .replace(/&quot;/g, '\"')\n    .trim();\n}\n\n// Check for large attachments (>1MB)\nconst hasLargeAttachments = emailData.attachments && \n  emailData.attachments.some(att => att.size > 1048576);\n\n// Process email body\nlet emailBody = emailData.snippet || emailData.textPlain || htmlToText(emailData.textHtml) || '';\n\n// Truncate very long emails for Gemini processing\nif (emailBody.length > 2000) {\n  emailBody = emailBody.substring(0, 2000) + '... [truncated]';\n}\n\n// Create prompt for Gemini\nconst prompt = `Please write a professional email response to the following email:\n\nFrom: ${emailData.from}\nSubject: ${emailData.subject}\n\nEmail content:\n${emailBody}\n\nPlease provide a concise, helpful response that addresses the sender's needs. Keep it professional and friendly.`;\n\nreturn {\n  json: {\n    originalEmail: {\n      messageId: emailData.id,\n      threadId: emailData.threadId,\n      from: emailData.from,\n      subject: emailData.subject,\n      body: emailBody,\n      hasLargeAttachments: hasLargeAttachments\n    },\n    geminiPrompt: prompt,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "process-email",
+      "name": "Process Email Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "contents",
+              "value": "=[{\"parts\": [{\"text\": \"{{ $json.geminiPrompt }}\"}]}]"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 3000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 2,
+            "waitBetween": 1000
+          }
+        }
+      },
+      "id": "gemini-request",
+      "name": "Gemini API Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [680, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "gemini-api",
+          "name": "Gemini API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Gemini response and prepare draft\nconst geminiResponse = $input.all()[0].json;\nconst emailData = $input.all()[1].json.originalEmail;\n\n// Extract generated text from Gemini response\nlet generatedText = '';\ntry {\n  if (geminiResponse.candidates && geminiResponse.candidates[0]) {\n    generatedText = geminiResponse.candidates[0].content.parts[0].text;\n  } else {\n    generatedText = 'I apologize, but I was unable to generate a response at this time. Please reply manually.';\n  }\n} catch (error) {\n  generatedText = 'I apologize, but I encountered an error generating a response. Please reply manually.';\n}\n\n// Add attachment note if needed\nif (emailData.hasLargeAttachments) {\n  generatedText += '\\n\\n[Note: Large attachments were omitted from this automated response]';\n}\n\nreturn {\n  json: {\n    draftContent: generatedText,\n    originalEmail: emailData,\n    responseGenerated: true,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "extract-response",
+      "name": "Extract Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "operation": "draft",
+        "messageId": "={{ $json.originalEmail.messageId }}",
+        "subject": "Re: {{ $json.originalEmail.subject }}",
+        "message": "={{ $json.draftContent }}",
+        "replyToSenderOnly": true
+      },
+      "id": "create-draft",
+      "name": "Create Gmail Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth",
+          "name": "Gmail OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// SMS rate limiting and validation\nconst emailData = $input.all()[0].json.originalEmail;\nconst currentHour = new Date().getHours();\n\n// Get SMS limits from environment\nconst dailyLimit = parseInt(process.env.SMS_DAILY_LIMIT) || 50;\nconst perRunLimit = parseInt(process.env.SMS_PER_RUN_LIMIT) || 3;\n\n// Simple rate limiting (in production, use Redis or database)\n// For MVP, we'll just track in workflow context\nconst smsCount = $workflow.smsCount || 0;\n\n// Check if we should send SMS\nconst shouldSendSMS = smsCount < perRunLimit && currentHour >= 8 && currentHour <= 22;\n\n// Create SMS message\nlet smsMessage = `Draft ready: ${emailData.subject}`;\nif (emailData.from) {\n  const fromName = emailData.from.split('<')[0].trim() || emailData.from;\n  smsMessage += ` (from ${fromName})`;\n}\n\nif (emailData.hasLargeAttachments) {\n  smsMessage += ' - Attachments omitted';\n}\n\n// Truncate if too long for SMS\nif (smsMessage.length > 160) {\n  smsMessage = smsMessage.substring(0, 157) + '...';\n}\n\nreturn {\n  json: {\n    smsMessage: smsMessage,\n    shouldSend: shouldSendSMS,\n    smsCount: smsCount + 1,\n    rateLimitInfo: {\n      dailyLimit: dailyLimit,\n      perRunLimit: perRunLimit,\n      currentCount: smsCount\n    }\n  }\n};"
+      },
+      "id": "prepare-sms",
+      "name": "Prepare SMS Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {\n          \"options\": {\n            \"caseSensitive\": true,\n            \"leftValue\": \"\",\n            \"typeValidation\": \"strict\"\n          },\n          \"conditions\": [\n            {\n              \"id\": \"should-send-sms\",\n              \"leftValue\": \"={{ $json.shouldSend }}\",\n              \"rightValue\": true,\n              \"operator\": {\n                \"type\": \"boolean\",\n                \"operation\": \"equals\"\n              }\n            }\n          ],\n          \"combinator\": \"and\"\n        }\n      },\n      \"id\": \"sms-gate\",\n      \"name\": \"SMS Rate Limit Gate\",\n      \"type\": \"n8n-nodes-base.if\",\n      \"typeVersion\": 2,\n      \"position\": [1560, 300]\n    },\n    {\n      \"parameters\": {\n        \"message\": \"={{ $json.smsMessage }}\",\n        \"toPhoneNumber\": \"={{ $env.USER_PHONE_NUMBER }}\",\n        \"fromPhoneNumber\": \"={{ $env.TWILIO_FROM_NUMBER }}\",\n        \"options\": {\n          \"statusCallback\": \"\"\n        }\n      },\n      \"id\": \"send-sms\",\n      \"name\": \"Send SMS Notification\",\n      \"type\": \"n8n-nodes-base.twilio\",\n      \"typeVersion\": 1,\n      \"position\": [1780, 200],\n      \"credentials\": {\n        \"twilioApi\": {\n          \"id\": \"twilio-trial\",\n          \"name\": \"Twilio Trial\"\n        }\n      }\n    },\n    {\n      \"parameters\": {\n        \"jsCode\": \"// Log SMS skip reason\\nconst rateLimitInfo = $input.all()[0].json.rateLimitInfo;\\n\\nconsole.log('SMS notification skipped:', {\\n  reason: 'Rate limit or quiet hours',\\n  currentCount: rateLimitInfo.currentCount,\\n  perRunLimit: rateLimitInfo.perRunLimit,\\n  dailyLimit: rateLimitInfo.dailyLimit,\\n  timestamp: new Date().toISOString()\\n});\\n\\nreturn {\\n  json: {\\n    smsSkipped: true,\\n    reason: 'Rate limit or quiet hours',\\n    rateLimitInfo: rateLimitInfo\\n  }\\n};\"\n      },\n      \"id\": \"log-sms-skip\",\n      \"name\": \"Log SMS Skip\",\n      \"type\": \"n8n-nodes-base.code\",\n      \"typeVersion\": 2,\n      \"position\": [1780, 400]\n    }\n  ],\n  \"connections\": {\n    \"Gmail Trigger\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"Process Email Content\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"Process Email Content\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"Gemini API Request\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"Gemini API Request\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"Extract Gemini Response\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"Extract Gemini Response\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"Create Gmail Draft\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"Create Gmail Draft\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"Prepare SMS Notification\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"Prepare SMS Notification\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"SMS Rate Limit Gate\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    },\n    \"SMS Rate Limit Gate\": {\n      \"main\": [\n        [\n          {\n            \"node\": \"Send SMS Notification\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ],\n        [\n          {\n            \"node\": \"Log SMS Skip\",\n            \"type\": \"main\",\n            \"index\": 0\n          }\n        ]\n      ]\n    }\n  },\n  \"active\": true,\n  \"settings\": {\n    \"executionOrder\": \"v1\",\n    \"saveManualExecutions\": true,\n    \"callerPolicy\": \"workflowsFromSameOwner\",\n    \"errorWorkflow\": \"\"\n  },\n  \"versionId\": \"1\",\n  \"meta\": {\n    \"templateCredsSetupCompleted\": true\n  },\n  \"id\": \"gmail-gemini-sms-workflow\",\n  \"tags\": [\n    {\n      \"createdAt\": \"2025-01-26T00:00:00.000Z\",\n      \"updatedAt\": \"2025-01-26T00:00:00.000Z\",\n      \"id\": \"pulse-ai\",\n      \"name\": \"pulse-ai\"\n    }\n  ]\n}

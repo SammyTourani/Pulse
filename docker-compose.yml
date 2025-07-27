@@ -1,0 +1,150 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      # PostgreSQL database configuration
+      POSTGRES_DB: ${DB_POSTGRESDB_DATABASE:-n8n}
+      POSTGRES_USER: ${DB_POSTGRESDB_USER:-n8n}
+      POSTGRES_PASSWORD: ${DB_POSTGRESDB_PASSWORD}
+    volumes:
+      # Persistent storage for database data
+      - postgres_data:/var/lib/postgresql/data
+      # Database initialization script
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${DB_POSTGRESDB_USER:-n8n} -d ${DB_POSTGRESDB_DATABASE:-n8n}']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - pulse-network
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    # Security: Run as non-root user (UID 1000)
+    user: '1000:1000'
+    environment:
+      # Database connection settings
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: ${DB_POSTGRESDB_PORT:-5432}
+      DB_POSTGRESDB_DATABASE: ${DB_POSTGRESDB_DATABASE:-n8n}
+      DB_POSTGRESDB_USER: ${DB_POSTGRESDB_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${DB_POSTGRESDB_PASSWORD}
+
+      # n8n web interface authentication
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-true}
+      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
+      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+
+      # Security settings for production
+      N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      N8N_DISABLE_PRODUCTION_MAIN_PROCESS: ${N8N_DISABLE_PRODUCTION_MAIN_PROCESS:-false}
+
+      # Disable remote credential editing in production
+      N8N_DISABLE_UI: ${N8N_DISABLE_UI:-false}
+
+      # Enable metrics endpoint for monitoring
+      N8N_METRICS: ${N8N_METRICS:-true}
+
+      # Workflow execution settings
+      EXECUTIONS_PROCESS: main
+      EXECUTIONS_DATA_SAVE_ON_ERROR: all
+      EXECUTIONS_DATA_SAVE_ON_SUCCESS: all
+      EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS: true
+
+      # Generic timezone setting
+      GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
+
+      # External service API keys (passed through to workflows)
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_FROM_NUMBER: ${TWILIO_FROM_NUMBER}
+      USER_PHONE_NUMBER: ${USER_PHONE_NUMBER}
+
+      # SMS rate limiting configuration
+      SMS_DAILY_LIMIT: ${SMS_DAILY_LIMIT:-50}
+      SMS_PER_RUN_LIMIT: ${SMS_PER_RUN_LIMIT:-3}
+    ports:
+      # n8n web interface
+      - '5678:5678'
+    volumes:
+      # Persistent storage for n8n data (workflows, credentials, etc.)
+      - n8n_data:/home/node/.n8n
+      # Import workflows on startup
+      - ./flows:/home/node/.n8n/workflows:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'wget --no-verbose --tries=1 --spider http://localhost:5678/healthz || exit 1',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - pulse-network
+
+  healthcheck:
+    build:
+      context: .
+      dockerfile: Dockerfile.healthcheck
+    restart: unless-stopped
+    environment:
+      # Database connection for health checks
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: ${DB_POSTGRESDB_PORT:-5432}
+      DB_POSTGRESDB_DATABASE: ${DB_POSTGRESDB_DATABASE:-n8n}
+      DB_POSTGRESDB_USER: ${DB_POSTGRESDB_USER:-n8n}
+      DB_POSTGRESDB_PASSWORD: ${DB_POSTGRESDB_PASSWORD}
+
+      # Health check server configuration
+      HEALTHZ_PORT: ${HEALTHZ_PORT:-3001}
+    ports:
+      # Health check endpoint
+      - '3001:3001'
+    depends_on:
+      - postgres
+      - n8n
+    networks:
+      - pulse-network
+
+volumes:
+  # Persistent volume for PostgreSQL data
+  postgres_data:
+    driver: local
+
+  # Persistent volume for n8n data
+  n8n_data:
+    driver: local
+
+networks:
+  # Internal network for service communication
+  pulse-network:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.19.0.0/16
+          gateway: 172.19.0.1
+    driver_opts:
+      com.docker.network.bridge.name: pulse-br0
+      com.docker.network.driver.mtu: 1500
+# Production deployment notes:
+# For cloud deployment with auto-TLS:
+# 1. Use Caddy as reverse proxy with Let's Encrypt
+# 2. Set N8N_SECURE_COOKIE=true
+# 3. Set N8N_DISABLE_UI=true to disable credential editing
+# 4. Configure proper firewall rules
+# 5. Use secrets management for sensitive environment variables
