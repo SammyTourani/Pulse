@@ -1,0 +1,506 @@
+{
+  "info": {
+    "name": "Pulse AI Assistant Bricks",
+    "description": "Collection of HTTP endpoints for Pulse AI Assistant brick layer functionality. Each brick provides a specific capability like email drafting, calendar management, or email summarization.",
+    "version": "1.0.0",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5678",
+      "description": "Base URL for n8n instance"
+    },
+    {
+      "key": "brickAuthKey",
+      "value": "{{BRICK_AUTH_KEY}}",
+      "description": "Authentication key for brick endpoints"
+    }
+  ],
+  "item": [
+    {
+      "name": "Email Bricks",
+      "description": "Bricks for Gmail operations",
+      "item": [
+        {
+          "name": "Create Email Draft",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Pulse-Key",
+                "value": "{{brickAuthKey}}",
+                "description": "Required authentication header"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"recipient@example.com\",\n  \"subject\": \"Meeting Follow-up\",\n  \"body\": \"Hi there,\\n\\nThank you for the productive meeting today. I wanted to follow up on the action items we discussed:\\n\\n1. Review the project timeline\\n2. Schedule next check-in\\n3. Share updated requirements\\n\\nLet me know if you have any questions.\\n\\nBest regards\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/create_email_draft",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "create_email_draft"]
+            },
+            "description": "Creates a Gmail draft email with the specified recipient, subject, and body content."
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": true,\n  \"data\": {\n    \"draftId\": \"r1234567890\"\n  },\n  \"brick\": \"create_email_draft\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-abc123def456\"\n}"
+            },
+            {
+              "name": "Validation Error (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": false,\n  \"error\": \"Input validation failed\",\n  \"code\": \"VALIDATION_FAILED\",\n  \"details\": [\n    \"Missing required field: to\",\n    \"Field 'subject' must be at least 1 characters long\"\n  ],\n  \"brick\": \"create_email_draft\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-abc123def456\"\n}"
+            },
+            {
+              "name": "Authentication Error (401)",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": false,\n  \"error\": \"Unauthorized\",\n  \"code\": \"AUTH_FAILED\",\n  \"brick\": \"create_email_draft\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-abc123def456\"\n}"
+            },
+            {
+              "name": "Rate Limit Error (429)",
+              "status": "Too Many Requests",
+              "code": 429,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": false,\n  \"error\": \"Rate limit exceeded\",\n  \"code\": \"RATE_LIMITED\",\n  \"brick\": \"create_email_draft\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-abc123def456\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Summarize Emails",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Pulse-Key",
+                "value": "{{brickAuthKey}}",
+                "description": "Required authentication header"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sinceISO\": \"2024-01-15T00:00:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/summarize_emails",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "summarize_emails"]
+            },
+            "description": "Generates an AI-powered summary of emails received since the specified ISO timestamp."
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": true,\n  \"data\": {\n    \"summary\": \"You received 5 emails today: 2 project updates from the development team, 1 meeting invitation for tomorrow's standup, 1 client inquiry about pricing, and 1 newsletter subscription confirmation. The project updates indicate good progress on the Q1 deliverables.\",\n    \"emailCount\": 5,\n    \"timeRange\": {\n      \"from\": \"2024-01-15T00:00:00.000Z\",\n      \"to\": \"2024-01-15T10:30:00.000Z\"\n    }\n  },\n  \"brick\": \"summarize_emails\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-def456ghi789\"\n}"
+            },
+            {
+              "name": "Validation Error (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": false,\n  \"error\": \"Input validation failed\",\n  \"code\": \"VALIDATION_FAILED\",\n  \"details\": [\n    \"Field 'sinceISO' must be a valid ISO 8601 date-time string\"\n  ],\n  \"brick\": \"summarize_emails\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-def456ghi789\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Calendar Bricks",
+      "description": "Bricks for Google Calendar operations",
+      "item": [
+        {
+          "name": "Create Calendar Event",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Pulse-Key",
+                "value": "{{brickAuthKey}}",
+                "description": "Required authentication header"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Team Standup Meeting\",\n  \"startISO\": \"2024-01-16T09:00:00.000Z\",\n  \"endISO\": \"2024-01-16T09:30:00.000Z\",\n  \"guests\": [\n    \"teammate1@example.com\",\n    \"teammate2@example.com\"\n  ],\n  \"description\": \"Daily standup to discuss progress and blockers\",\n  \"location\": \"Conference Room A\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/create_calendar_event",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "create_calendar_event"]
+            },
+            "description": "Creates a Google Calendar event with the specified details and guest invitations."
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": true,\n  \"data\": {\n    \"eventId\": \"abc123def456ghi789\",\n    \"htmlLink\": \"https://calendar.google.com/calendar/event?eid=abc123def456ghi789\"\n  },\n  \"brick\": \"create_calendar_event\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-ghi789jkl012\"\n}"
+            },
+            {
+              "name": "Validation Error (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": false,\n  \"error\": \"Input validation failed\",\n  \"code\": \"VALIDATION_FAILED\",\n  \"details\": [\n    \"Missing required field: title\",\n    \"Field 'startISO' must be a valid ISO 8601 date-time string\"\n  ],\n  \"brick\": \"create_calendar_event\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-ghi789jkl012\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Today's Events",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Pulse-Key",
+                "value": "{{brickAuthKey}}",
+                "description": "Required authentication header"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/list_todays_events",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "list_todays_events"]
+            },
+            "description": "Retrieves all calendar events for today from the primary Google Calendar."
+          },
+          "response": [
+            {
+              "name": "Success Response",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": true,\n  \"data\": {\n    \"events\": [\n      {\n        \"title\": \"Team Standup\",\n        \"start\": \"2024-01-15T09:00:00.000Z\",\n        \"end\": \"2024-01-15T09:30:00.000Z\",\n        \"location\": \"Conference Room A\",\n        \"attendees\": [\n          \"***@***\",\n          \"***@***\"\n        ]\n      },\n      {\n        \"title\": \"Client Meeting\",\n        \"start\": \"2024-01-15T14:00:00.000Z\",\n        \"end\": \"2024-01-15T15:00:00.000Z\",\n        \"location\": \"Zoom\",\n        \"attendees\": [\n          \"***@***\"\n        ]\n      }\n    ]\n  },\n  \"brick\": \"list_todays_events\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-jkl012mno345\"\n}"
+            },
+            {
+              "name": "No Events Response",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": true,\n  \"data\": {\n    \"events\": []\n  },\n  \"brick\": \"list_todays_events\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-jkl012mno345\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Mock Mode Examples",
+      "description": "Examples of brick responses when MOCK_MODE=true",
+      "item": [
+        {
+          "name": "Create Email Draft (Mock)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Pulse-Key",
+                "value": "{{brickAuthKey}}",
+                "description": "Required authentication header"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"test@example.com\",\n  \"subject\": \"Test Email\",\n  \"body\": \"This is a test email for mock mode.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/create_email_draft",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "create_email_draft"]
+            },
+            "description": "Creates a mock email draft when MOCK_MODE=true. Returns canned response without calling Gmail API."
+          },
+          "response": [
+            {
+              "name": "Mock Success Response",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": true,\n  \"data\": {\n    \"draftId\": \"mock-draft-123\"\n  },\n  \"brick\": \"create_email_draft\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"mock-req-456\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Summarize Emails (Mock)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Pulse-Key",
+                "value": "{{brickAuthKey}}",
+                "description": "Required authentication header"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sinceISO\": \"2024-01-15T00:00:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/summarize_emails",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "summarize_emails"]
+            },
+            "description": "Generates a mock email summary when MOCK_MODE=true. Returns canned response without calling Gmail or Gemini APIs."
+          },
+          "response": [
+            {
+              "name": "Mock Success Response",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": true,\n  \"data\": {\n    \"summary\": \"Mock summary: 3 emails received about project updates and meeting requests.\",\n    \"emailCount\": 3,\n    \"timeRange\": {\n      \"from\": \"2024-01-15T00:00:00.000Z\",\n      \"to\": \"2024-01-15T10:30:00.000Z\"\n    }\n  },\n  \"brick\": \"summarize_emails\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"mock-req-789\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Error Scenarios",
+      "description": "Common error scenarios across all bricks",
+      "item": [
+        {
+          "name": "Missing Authentication Header",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"test@example.com\",\n  \"subject\": \"Test\",\n  \"body\": \"Test body\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/create_email_draft",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "create_email_draft"]
+            },
+            "description": "Example request without X-Pulse-Key header to demonstrate authentication error."
+          },
+          "response": [
+            {
+              "name": "Authentication Error (401)",
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": false,\n  \"error\": \"Unauthorized\",\n  \"code\": \"AUTH_FAILED\",\n  \"brick\": \"create_email_draft\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-error-123\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Invalid JSON Input",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Pulse-Key",
+                "value": "{{brickAuthKey}}",
+                "description": "Required authentication header"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"to\": \"invalid-email\",\n  \"subject\": \"\",\n  \"body\": \"Test body\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/webhook-brick/create_email_draft",
+              "host": ["{{baseUrl}}"],
+              "path": ["webhook-brick", "create_email_draft"]
+            },
+            "description": "Example request with invalid input to demonstrate validation error."
+          },
+          "response": [
+            {
+              "name": "Validation Error (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"ok\": false,\n  \"error\": \"Input validation failed\",\n  \"code\": \"VALIDATION_FAILED\",\n  \"details\": [\n    \"Field 'to' must be a valid email address\",\n    \"Field 'subject' must be at least 1 characters long\"\n  ],\n  \"brick\": \"create_email_draft\",\n  \"timestamp\": \"2024-01-15T10:30:00.000Z\",\n  \"requestId\": \"req-error-456\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set environment variables if not already set",
+          "if (!pm.environment.get('baseUrl')) {",
+          "    pm.environment.set('baseUrl', 'http://localhost:5678');",
+          "}",
+          "",
+          "if (!pm.environment.get('brickAuthKey')) {",
+          "    console.log('Warning: BRICK_AUTH_KEY not set in environment variables');",
+          "    console.log('Please set brickAuthKey variable in your Postman environment');",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Common tests for all brick responses",
+          "pm.test('Response has correct content type', function () {",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/json');",
+          "});",
+          "",
+          "pm.test('Response has valid JSON structure', function () {",
+          "    const response = pm.response.json();",
+          "    pm.expect(response).to.have.property('ok');",
+          "    pm.expect(response).to.have.property('timestamp');",
+          "    pm.expect(response).to.have.property('brick');",
+          "});",
+          "",
+          "pm.test('Response timestamp is valid ISO string', function () {",
+          "    const response = pm.response.json();",
+          "    pm.expect(response.timestamp).to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$/);",
+          "});",
+          "",
+          "// Success response tests",
+          "if (pm.response.code === 200) {",
+          "    pm.test('Success response has data property', function () {",
+          "        const response = pm.response.json();",
+          "        pm.expect(response.ok).to.be.true;",
+          "        pm.expect(response).to.have.property('data');",
+          "    });",
+          "}",
+          "",
+          "// Error response tests",
+          "if (pm.response.code >= 400) {",
+          "    pm.test('Error response has error property', function () {",
+          "        const response = pm.response.json();",
+          "        pm.expect(response.ok).to.be.false;",
+          "        pm.expect(response).to.have.property('error');",
+          "        pm.expect(response).to.have.property('code');",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ]
+}

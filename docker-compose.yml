@@ -22,6 +22,22 @@ services:
     networks:
       - pulse-network
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-devpass}
+    volumes:
+      # Persistent storage for Redis data
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--raw', 'incr', 'ping']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - pulse-network
+
   n8n:
     image: n8nio/n8n:latest
     restart: unless-stopped
@@ -72,6 +88,20 @@ services:
       # SMS rate limiting configuration
       SMS_DAILY_LIMIT: ${SMS_DAILY_LIMIT:-50}
       SMS_PER_RUN_LIMIT: ${SMS_PER_RUN_LIMIT:-3}
+
+      # Brick Layer configuration
+      BRICK_AUTH_KEY: ${BRICK_AUTH_KEY}
+      BRICK_RATE_LIMIT_REQUESTS: ${BRICK_RATE_LIMIT_REQUESTS:-100}
+      MOCK_MODE: ${MOCK_MODE:-false}
+
+      # AI and Google Services configuration
+      GEMINI_DEFAULT_MODEL: ${GEMINI_DEFAULT_MODEL:-gemini-1.5-flash-latest}
+      GOOGLE_CALENDAR_ID: ${GOOGLE_CALENDAR_ID:-primary}
+
+      # Redis configuration for rate limiting
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-devpass}
     ports:
       # n8n web interface
       - '5678:5678'
@@ -82,6 +112,8 @@ services:
       - ./flows:/home/node/.n8n/workflows:ro
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -127,6 +159,10 @@ volumes:
 
   # Persistent volume for n8n data
   n8n_data:
+    driver: local
+
+  # Persistent volume for Redis data
+  redis_data:
     driver: local
 
 networks:

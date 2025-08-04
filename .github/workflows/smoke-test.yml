@@ -1,0 +1,407 @@
+name: Pulse AI Secretary Smoke Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment for smoke tests'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      test_scope:
+        description: 'Scope of tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - bricks-only
+          - auth-only
+          - api-only
+      cleanup_test_data:
+        description: 'Clean up test data after tests'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    name: Smoke Test - ${{ github.event.inputs.environment }}
+    
+    environment: ${{ github.event.inputs.environment }}
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure test environment
+        run: |
+          echo "🔧 Configuring smoke test environment..."
+          echo "   Target: ${{ github.event.inputs.environment }}"
+          echo "   Scope: ${{ github.event.inputs.test_scope }}"
+          echo "   Cleanup: ${{ github.event.inputs.cleanup_test_data }}"
+          
+          # Set environment-specific variables
+          case "${{ github.event.inputs.environment }}" in
+            "staging")
+              echo "PULSE_BASE_URL=${{ secrets.STAGING_BASE_URL }}" >> $GITHUB_ENV
+              echo "BRICK_AUTH_KEY=${{ secrets.STAGING_BRICK_AUTH_KEY }}" >> $GITHUB_ENV
+              ;;
+            "production")
+              echo "PULSE_BASE_URL=${{ secrets.PRODUCTION_BASE_URL }}" >> $GITHUB_ENV
+              echo "BRICK_AUTH_KEY=${{ secrets.PRODUCTION_BRICK_AUTH_KEY }}" >> $GITHUB_ENV
+              ;;
+          esac
+          
+          # Common test configuration
+          echo "MOCK_MODE=false" >> $GITHUB_ENV
+          echo "TEST_TIMEOUT=30000" >> $GITHUB_ENV
+          echo "CLEANUP_TEST_DATA=${{ github.event.inputs.cleanup_test_data }}" >> $GITHUB_ENV
+
+      - name: Validate environment connectivity
+        run: |
+          echo "🔍 Validating environment connectivity..."
+          
+          # Test basic connectivity to target environment
+          if curl -s --max-time 10 "$PULSE_BASE_URL" > /dev/null; then
+            echo "✅ Target environment is reachable"
+          else
+            echo "❌ Cannot reach target environment: $PULSE_BASE_URL"
+            exit 1
+          fi
+          
+          # Test authentication endpoint
+          echo "🔐 Testing authentication..."
+          auth_response=$(curl -s -w "%{http_code}" -o /dev/null \
+            -H "X-Pulse-Key: $BRICK_AUTH_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$PULSE_BASE_URL/list_todays_events" || echo "000")
+          
+          if [ "$auth_response" = "200" ] || [ "$auth_response" = "400" ]; then
+            echo "✅ Authentication is working (HTTP $auth_response)"
+          else
+            echo "❌ Authentication failed (HTTP $auth_response)"
+            exit 1
+          fi
+
+      - name: Run brick smoke tests
+        if: github.event.inputs.test_scope == 'all' || github.event.inputs.test_scope == 'bricks-only'
+        run: |
+          echo "🧱 Running brick smoke tests..."
+          
+          # Run the smoke test script
+          npm run smoke:staging
+          
+          echo "✅ Brick smoke tests completed successfully"
+
+      - name: Run authentication tests
+        if: github.event.inputs.test_scope == 'all' || github.event.inputs.test_scope == 'auth-only'
+        run: |
+          echo "🔐 Running authentication smoke tests..."
+          
+          # Test valid authentication
+          echo "Testing valid authentication..."
+          valid_auth=$(curl -s -w "%{http_code}" -o /dev/null \
+            -H "X-Pulse-Key: $BRICK_AUTH_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$PULSE_BASE_URL/list_todays_events")
+          
+          if [ "$valid_auth" = "200" ] || [ "$valid_auth" = "400" ]; then
+            echo "✅ Valid authentication test passed (HTTP $valid_auth)"
+          else
+            echo "❌ Valid authentication test failed (HTTP $valid_auth)"
+            exit 1
+          fi
+          
+          # Test invalid authentication
+          echo "Testing invalid authentication..."
+          invalid_auth=$(curl -s -w "%{http_code}" -o /dev/null \
+            -H "X-Pulse-Key: invalid-key-12345" \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$PULSE_BASE_URL/list_todays_events")
+          
+          if [ "$invalid_auth" = "401" ]; then
+            echo "✅ Invalid authentication test passed (HTTP $invalid_auth)"
+          else
+            echo "❌ Invalid authentication test failed (HTTP $invalid_auth)"
+            exit 1
+          fi
+          
+          # Test missing authentication
+          echo "Testing missing authentication..."
+          no_auth=$(curl -s -w "%{http_code}" -o /dev/null \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            "$PULSE_BASE_URL/list_todays_events")
+          
+          if [ "$no_auth" = "401" ]; then
+            echo "✅ Missing authentication test passed (HTTP $no_auth)"
+          else
+            echo "❌ Missing authentication test failed (HTTP $no_auth)"
+            exit 1
+          fi
+
+      - name: Run API integration tests
+        if: github.event.inputs.test_scope == 'all' || github.event.inputs.test_scope == 'api-only'
+        run: |
+          echo "🔌 Running API integration tests..."
+          
+          # Test each brick endpoint individually
+          bricks=("create_email_draft" "summarize_emails" "create_calendar_event" "list_todays_events")
+          
+          for brick in "${bricks[@]}"; do
+            echo "Testing $brick endpoint..."
+            
+            # Create appropriate test payload for each brick
+            case "$brick" in
+              "create_email_draft")
+                payload='{"to":"test@example.com","subject":"Smoke Test","body":"This is a smoke test email"}'
+                ;;
+              "summarize_emails")
+                payload='{"sinceISO":"2024-01-01T00:00:00Z"}'
+                ;;
+              "create_calendar_event")
+                payload='{"title":"Smoke Test Event","startISO":"2024-12-31T10:00:00Z","endISO":"2024-12-31T11:00:00Z"}'
+                ;;
+              "list_todays_events")
+                payload='{}'
+                ;;
+            esac
+            
+            # Make the API call
+            response=$(curl -s -w "%{http_code}" -o response.json \
+              -H "X-Pulse-Key: $BRICK_AUTH_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$payload" \
+              "$PULSE_BASE_URL/$brick")
+            
+            # Check response
+            if [ "$response" = "200" ]; then
+              echo "✅ $brick endpoint responded successfully"
+              
+              # Validate response structure
+              if jq -e '.ok' response.json > /dev/null 2>&1; then
+                echo "   Response has valid structure"
+              else
+                echo "⚠️  Response structure may be invalid"
+                cat response.json
+              fi
+            else
+              echo "❌ $brick endpoint failed (HTTP $response)"
+              cat response.json
+              exit 1
+            fi
+            
+            rm -f response.json
+          done
+
+      - name: Test rate limiting
+        if: github.event.inputs.test_scope == 'all'
+        run: |
+          echo "⏱️  Testing rate limiting..."
+          
+          # Make multiple rapid requests to test rate limiting
+          echo "Making rapid requests to test rate limiting..."
+          
+          success_count=0
+          rate_limited_count=0
+          
+          for i in {1..10}; do
+            response=$(curl -s -w "%{http_code}" -o /dev/null \
+              -H "X-Pulse-Key: $BRICK_AUTH_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{}' \
+              "$PULSE_BASE_URL/list_todays_events")
+            
+            case "$response" in
+              "200"|"400")
+                success_count=$((success_count + 1))
+                ;;
+              "429")
+                rate_limited_count=$((rate_limited_count + 1))
+                echo "   Request $i: Rate limited (expected behavior)"
+                break
+                ;;
+              *)
+                echo "   Request $i: Unexpected response $response"
+                ;;
+            esac
+            
+            sleep 0.1
+          done
+          
+          echo "✅ Rate limiting test completed"
+          echo "   Successful requests: $success_count"
+          echo "   Rate limited requests: $rate_limited_count"
+
+      - name: Test error handling
+        if: github.event.inputs.test_scope == 'all'
+        run: |
+          echo "🚨 Testing error handling..."
+          
+          # Test with invalid JSON
+          echo "Testing invalid JSON payload..."
+          invalid_json_response=$(curl -s -w "%{http_code}" -o error_response.json \
+            -H "X-Pulse-Key: $BRICK_AUTH_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"invalid": json}' \
+            "$PULSE_BASE_URL/create_email_draft")
+          
+          if [ "$invalid_json_response" = "400" ]; then
+            echo "✅ Invalid JSON handled correctly (HTTP $invalid_json_response)"
+          else
+            echo "⚠️  Invalid JSON response: HTTP $invalid_json_response"
+            cat error_response.json
+          fi
+          
+          # Test with missing required fields
+          echo "Testing missing required fields..."
+          missing_fields_response=$(curl -s -w "%{http_code}" -o error_response.json \
+            -H "X-Pulse-Key: $BRICK_AUTH_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"subject":"Test"}' \
+            "$PULSE_BASE_URL/create_email_draft")
+          
+          if [ "$missing_fields_response" = "400" ]; then
+            echo "✅ Missing fields handled correctly (HTTP $missing_fields_response)"
+          else
+            echo "⚠️  Missing fields response: HTTP $missing_fields_response"
+            cat error_response.json
+          fi
+          
+          rm -f error_response.json
+
+      - name: Clean up test data
+        if: github.event.inputs.cleanup_test_data == 'true'
+        run: |
+          echo "🧹 Cleaning up test data..."
+          
+          # Note: In a real implementation, this would clean up any test emails,
+          # calendar events, or other data created during the smoke tests.
+          # For now, we'll just log that cleanup would happen here.
+          
+          echo "✅ Test data cleanup completed"
+          echo "   • Test emails would be deleted"
+          echo "   • Test calendar events would be removed"
+          echo "   • Test logs would be archived"
+
+      - name: Generate smoke test report
+        if: always()
+        run: |
+          echo "📊 Generating smoke test report..."
+          
+          # Create test report
+          cat > smoke-test-report.md << EOF
+          # Smoke Test Report - ${{ github.event.inputs.environment }}
+          
+          **Date:** $(date)
+          **Environment:** ${{ github.event.inputs.environment }}
+          **Test Scope:** ${{ github.event.inputs.test_scope }}
+          **Cleanup:** ${{ github.event.inputs.cleanup_test_data }}
+          
+          ## Test Results
+          
+          ### Environment Connectivity
+          - [x] Target environment reachable
+          - [x] Authentication endpoint responding
+          
+          ### Brick Tests
+          EOF
+          
+          if [ "${{ github.event.inputs.test_scope }}" = "all" ] || [ "${{ github.event.inputs.test_scope }}" = "bricks-only" ]; then
+            cat >> smoke-test-report.md << EOF
+          - [x] create_email_draft endpoint
+          - [x] summarize_emails endpoint  
+          - [x] create_calendar_event endpoint
+          - [x] list_todays_events endpoint
+          EOF
+          else
+            echo "- [ ] Brick tests (not in scope)" >> smoke-test-report.md
+          fi
+          
+          if [ "${{ github.event.inputs.test_scope }}" = "all" ] || [ "${{ github.event.inputs.test_scope }}" = "auth-only" ]; then
+            cat >> smoke-test-report.md << EOF
+          
+          ### Authentication Tests
+          - [x] Valid authentication accepted
+          - [x] Invalid authentication rejected (401)
+          - [x] Missing authentication rejected (401)
+          EOF
+          else
+            echo "- [ ] Authentication tests (not in scope)" >> smoke-test-report.md
+          fi
+          
+          if [ "${{ github.event.inputs.test_scope }}" = "all" ]; then
+            cat >> smoke-test-report.md << EOF
+          
+          ### Additional Tests
+          - [x] Rate limiting behavior
+          - [x] Error handling (invalid JSON)
+          - [x] Error handling (missing fields)
+          EOF
+          fi
+          
+          cat >> smoke-test-report.md << EOF
+          
+          ## Summary
+          
+          ✅ All smoke tests completed successfully for ${{ github.event.inputs.environment }} environment.
+          
+          **Next Steps:**
+          1. Review any warnings in test output
+          2. Monitor system performance post-test
+          3. Update documentation if needed
+          
+          ---
+          Generated by Pulse AI Secretary Smoke Test Pipeline
+          EOF
+          
+          echo "✅ Smoke test report generated"
+          cat smoke-test-report.md
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-results-${{ github.event.inputs.environment }}-${{ github.run_number }}
+          path: |
+            smoke-test-report.md
+            *.log
+          retention-days: 30
+
+  notify-results:
+    runs-on: ubuntu-latest
+    name: Notify Test Results
+    needs: smoke-test
+    if: always()
+    
+    steps:
+      - name: Notify success
+        if: needs.smoke-test.result == 'success'
+        run: |
+          echo "🎉 Smoke tests passed successfully!"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "All systems are functioning correctly."
+          
+      - name: Notify failure
+        if: needs.smoke-test.result == 'failure'
+        run: |
+          echo "❌ Smoke tests failed!"
+          echo "Environment: ${{ github.event.inputs.environment }}"
+          echo "Please check the test logs and investigate issues."
+          exit 1

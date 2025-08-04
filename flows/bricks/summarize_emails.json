@@ -1,0 +1,373 @@
+{
+  "name": "summarize_emails",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook-brick/summarize_emails",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "summarize-emails-webhook"
+    },
+    {
+      "parameters": {
+        "workflowId": "brick_auth_guard"
+      },
+      "id": "call-auth-guard",
+      "name": "Call Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare data for validation sub-workflow\nconst inputData = $input.all()[0].json;\n\nreturn {\n  json: {\n    brickName: 'summarize_emails',\n    inputData: inputData.body || inputData,\n    originalInput: inputData.body || inputData,\n    headers: inputData.headers || {}\n  }\n};"
+      },
+      "id": "prepare-validation",
+      "name": "Prepare Validation Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "brick_validate"
+      },
+      "id": "call-validate",
+      "name": "Call Validate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check MOCK_MODE and validate input for email summarization\nconst inputData = $input.all()[0].json;\nconst mockMode = process.env.MOCK_MODE === 'true';\nconst validatedInput = inputData.originalInput;\n\n// Validate ISO date\nfunction validateISO8601(isoString) {\n  if (!isoString || typeof isoString !== 'string') {\n    throw new Error('ISO date string is required');\n  }\n  const date = new Date(isoString);\n  if (isNaN(date.getTime())) {\n    throw new Error('Invalid ISO 8601 date format');\n  }\n  return date;\n}\n\ntry {\n  const sinceDate = validateISO8601(validatedInput.sinceISO);\n  const sinceISO = sinceDate.toISOString();\n  const timeRangeHours = Math.round((new Date() - sinceDate) / (1000 * 60 * 60));\n  \n  console.log('Processing summarize_emails request:', {\n    mockMode: mockMode,\n    timeRangeHours: timeRangeHours,\n    timestamp: new Date().toISOString()\n  });\n  \n  if (mockMode) {\n    // Return mock response with Gemini-style summary\n    const mockSummary = `Mock Summary: You received 3 emails in the last ${timeRangeHours} hours. Key topics included project updates, meeting requests, and general correspondence. Most emails were from colleagues and required no immediate action.`;\n    \n    return {\n      json: {\n        brickName: 'summarize_emails',\n        success: true,\n        data: {\n          summary: mockSummary,\n          emailCount: 3,\n          timeRange: {\n            from: sinceISO,\n            to: new Date().toISOString()\n          }\n        },\n        originalInput: inputData.originalInput,\n        mockMode: true\n      }\n    };\n  }\n  \n  // Prepare for real Gmail API call and Gemini processing\n  return {\n    json: {\n      brickName: 'summarize_emails',\n      originalInput: inputData.originalInput,\n      mockMode: false,\n      sinceISO: sinceISO,\n      timeRangeHours: timeRangeHours,\n      startTime: Date.now()\n    }\n  };\n  \n} catch (error) {\n  return {\n    json: {\n      brickName: 'summarize_emails',\n      success: false,\n      error: 'Input validation failed: ' + error.message,\n      code: 'VALIDATION_ERROR',\n      httpStatus: 400,\n      originalInput: inputData.originalInput\n    }\n  };\n}"
+      },
+      "id": "check-mock-mode",
+      "name": "Check Mock Mode & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validation-failed",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validation-error-branch",
+      "name": "Validation Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format error response directly\nconst inputData = $input.all()[0].json;\nconst requestId = 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);\n\nconst response = {\n  ok: false,\n  error: inputData.error || \"An error occurred\",\n  code: inputData.code || \"INTERNAL_ERROR\",  brick: 'summarize_emails',\n  timestamp: new Date().toISOString(),\n  requestId: requestId\n};\n\nreturn {\n  json: {\n    response: response,\n    httpStatus: inputData.httpStatus || 500\n  }\n};"
+      },
+      "id": "format-error-response",
+      "name": "Format Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      },
+      "id": "send-error-response",
+      "name": "Send Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 50,
+        "simple": false,
+        "filters": {
+          "query": "={{ 'after:' + Math.floor(new Date($json.sinceISO).getTime() / 1000) }}",
+          "includeSpamTrash": false
+        }
+      },
+      "id": "fetch-gmail-messages",
+      "name": "Fetch Gmail Messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        480
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth",
+          "name": "Gmail OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Gmail messages and call Gemini API for summarization\ntry {\n  const inputData = $input.all()[0].json;\n  const previousData = $input.all()[1]?.json || {};\n  \n  console.log('[INFO] Processing Gmail messages for Gemini summarization');\n  \n  // Check for Gmail API errors\n  if (inputData.error) {\n    console.log('[ERROR] Gmail API error:', inputData.error);\n    return {\n      json: {\n        brickName: 'summarize_emails',\n        success: false,\n        error: 'Gmail API error: ' + (inputData.error.message || inputData.error),\n        code: 'GMAIL_API_ERROR',\n        httpStatus: 502,\n        originalInput: previousData.originalInput\n      }\n    };\n  }\n  \n  // Process emails\n  const emails = Array.isArray(inputData) ? inputData : [];\n  const emailCount = emails.length;\n  \n  console.log(`[INFO] Processing ${emailCount} emails for Gemini summarization`);\n  \n  // Create Gemini prompt\n  let prompt = '';\n  if (emailCount === 0) {\n    prompt = 'No emails were received in the specified time period. Please provide a brief summary stating this.';\n  } else {\n    prompt = `Please provide a concise summary of the following ${emailCount} emails:\\n\\n`;\n    \n    // Process up to 10 emails for summarization\n    emails.slice(0, 10).forEach((email, index) => {\n      const subject = email.subject || 'No Subject';\n      const from = email.from?.name || email.from?.address || 'Unknown';\n      let content = email.textPlain || email.snippet || 'No content';\n      \n      // Truncate long content\n      if (content.length > 300) {\n        content = content.substring(0, 300) + '...';\n      }\n      \n      prompt += `Email ${index + 1}:\\n`;\n      prompt += `From: ${from}\\n`;\n      prompt += `Subject: ${subject}\\n`;\n      prompt += `Content: ${content}\\n\\n`;\n    });\n    \n    prompt += 'Please provide a summary that includes:\\n';\n    prompt += '1. Total number of emails\\n';\n    prompt += '2. Key topics and themes\\n';\n    prompt += '3. Important senders or urgent items\\n';\n    prompt += '4. Overall assessment of what requires attention\\n\\n';\n    prompt += 'Keep the summary concise but informative.';\n  }\n  \n  // Call Gemini API\n  const apiKey = process.env.GEMINI_API_KEY;\n  const model = process.env.GEMINI_DEFAULT_MODEL || 'gemini-1.5-flash-latest';\n  \n  if (!apiKey) {\n    console.log('[ERROR] GEMINI_API_KEY not configured');\n    return {\n      json: {\n        brickName: 'summarize_emails',\n        success: false,\n        error: 'GEMINI_API_KEY environment variable not set',\n        code: 'GEMINI_CONFIG_ERROR',\n        httpStatus: 500,\n        originalInput: previousData.originalInput\n      }\n    };\n  }\n  \n  console.log(`[INFO] Calling Gemini API for email summarization`);\n  \n  // Prepare Gemini request\n  const requestBody = {\n    contents: [{\n      parts: [{\n        text: prompt\n      }]\n    }],\n    generationConfig: {\n      temperature: 0.3,\n      topK: 40,\n      topP: 0.95,\n      maxOutputTokens: 512\n    }\n  };\n  \n  // Make Gemini API call\n  const response = await fetch(\n    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,\n    {\n      method: 'POST',\n      headers: {\n        'Content-Type': 'application/json',\n        'x-goog-api-key': apiKey\n      },\n      body: JSON.stringify(requestBody)\n    }\n  );\n  \n  if (!response.ok) {\n    const errorText = await response.text();\n    console.log(`[ERROR] Gemini API error: ${response.status} ${errorText}`);\n    \n    let errorCode = 'GEMINI_API_ERROR';\n    let httpStatus = 502;\n    \n    if (response.status === 401 || response.status === 403) {\n      errorCode = 'GEMINI_AUTH_ERROR';\n    } else if (response.status === 429) {\n      errorCode = 'GEMINI_RATE_LIMITED';\n      httpStatus = 503;\n    }\n    \n    return {\n      json: {\n        brickName: 'summarize_emails',\n        success: false,\n        error: `Gemini API error: ${response.status} ${response.statusText}`,\n        code: errorCode,\n        httpStatus: httpStatus,\n        originalInput: previousData.originalInput\n      }\n    };\n  }\n  \n  const responseData = await response.json();\n  console.log('[INFO] Gemini API call successful');\n  \n  // Extract summary from Gemini response\n  let summary = '';\n  try {\n    if (responseData && \n        responseData.candidates && \n        responseData.candidates[0] && \n        responseData.candidates[0].content && \n        responseData.candidates[0].content.parts && \n        responseData.candidates[0].content.parts[0]) {\n      \n      summary = responseData.candidates[0].content.parts[0].text || '';\n      \n      if (!summary.trim()) {\n        throw new Error('Empty response from Gemini');\n      }\n      \n    } else {\n      throw new Error('Invalid Gemini response structure');\n    }\n  } catch (error) {\n    console.error('[ERROR] Error extracting Gemini response:', error.message);\n    \n    // Generate fallback summary\n    if (emailCount === 0) {\n      summary = 'No emails were received in the specified time period.';\n    } else {\n      summary = `You received ${emailCount} email${emailCount === 1 ? '' : 's'} in the specified time period. Unable to generate detailed summary due to processing error.`;\n    }\n  }\n  \n  // Clean and truncate summary\n  summary = summary.trim();\n  const maxLength = 1000;\n  if (summary.length > maxLength) {\n    summary = summary.substring(0, maxLength - 3) + '...';\n  }\n  \n  console.log(`[INFO] Email summary generated successfully (${summary.length} chars, ${emailCount} emails)`);\n  \n  // Return successful response\n  return {\n    json: {\n      brickName: 'summarize_emails',\n      success: true,\n      data: {\n        summary: summary,\n        emailCount: emailCount,\n        timeRange: {\n          from: previousData.sinceISO || new Date(Date.now() - 24*60*60*1000).toISOString(),\n          to: new Date().toISOString()\n        }\n      },\n      originalInput: previousData.originalInput,\n      duration: Date.now() - (previousData.startTime || Date.now())\n    }\n  };\n  \n} catch (error) {\n  console.error('[ERROR] Error in email summarization:', error.message);\n  \n  return {\n    json: {\n      brickName: 'summarize_emails',\n      success: false,\n      error: 'Internal error processing emails: ' + error.message,\n      code: 'INTERNAL_PROCESSING_ERROR',\n      httpStatus: 500,\n      originalInput: ($input.all()[1]?.json || {}).originalInput\n    }\n  };\n}"
+      },
+      "id": "process-emails-with-gemini",
+      "name": "Process Emails with Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format success response directly\nconst inputData = $input.all()[0].json;\nconst requestId = 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);\n\nconst response = {\n  ok: true,\n  data: inputData.data,  brick: 'summarize_emails',\n  timestamp: new Date().toISOString(),\n  requestId: requestId\n};\n\nreturn {\n  json: {\n    response: response,\n    httpStatus: 200\n  }\n};"
+      },
+      "id": "format-success-response",
+      "name": "Format Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      },
+      "id": "send-success-response",
+      "name": "Send Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2440,
+        480
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "When called by another workflow",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [
+        240,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Call Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When called by another workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Validation Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Prepare Validation Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Validation Data": {
+      "main": [
+        [
+          {
+            "node": "Call Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Validate": {
+      "main": [
+        [
+          {
+            "node": "Check Mock Mode & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Mock Mode & Validate": {
+      "main": [
+        [
+          {
+            "node": "Validation Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Error?": {
+      "main": [
+        [
+          {
+            "node": "Call Respond (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mock Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Mode?": {
+      "main": [
+        [
+          {
+            "node": "Call Respond (Mock)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Gmail Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Gmail Messages": {
+      "main": [
+        [
+          {
+            "node": "Process Emails with Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Emails with Gemini": {
+      "main": [
+        [
+          {
+            "node": "Call Respond (Real)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format-error-response": {
+      "main": [
+        [
+          {
+            "node": "send-error-response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format-success-response": {
+      "main": [
+        [
+          {
+            "node": "send-success-response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

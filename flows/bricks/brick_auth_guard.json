@@ -1,0 +1,257 @@
+{
+  "name": "brick_auth_guard",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "Start",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract authentication header and validate API key\nconst headers = $input.all()[0].json.headers || {};\nconst providedKey = headers['x-pulse-key'] || headers['X-Pulse-Key'];\nconst expectedKey = $env.BRICK_AUTH_KEY;\n\n// Check if API key is provided\nif (!providedKey) {\n  return {\n    json: {\n      authResult: 'missing_key',\n      response: {\n        ok: false,\n        error: 'Missing X-Pulse-Key header',\n        code: 'AUTH_MISSING',\n        timestamp: new Date().toISOString()\n      },\n      httpStatus: 401\n    }\n  };\n}\n\n// Validate API key\nif (providedKey !== expectedKey) {\n  return {\n    json: {\n      authResult: 'invalid_key',\n      response: {\n        ok: false,\n        error: 'Unauthorized',\n        code: 'AUTH_FAILED',\n        timestamp: new Date().toISOString()\n      },\n      httpStatus: 401\n    }\n  };\n}\n\n// Generate key hash for rate limiting (first 8 chars of SHA256)\nconst crypto = require('crypto');\nconst keyHash = crypto.createHash('sha256').update(providedKey).digest('hex').substring(0, 8);\n\n// Get current date for daily rate limiting\nconst today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format\nconst rateLimitKey = `rate_limit_${keyHash}_${today}`;\n\nreturn {\n  json: {\n    authResult: 'valid',\n    keyHash: keyHash,\n    rateLimitKey: rateLimitKey,\n    today: today\n  }\n};"
+      },
+      "id": "auth-check",
+      "name": "Check Authentication",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "auth-failed",
+              "leftValue": "={{ $json.authResult }}",
+              "rightValue": "valid",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "auth-branch",
+      "name": "Auth Failed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      },
+      "id": "auth-error-response",
+      "name": "Return Auth Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 180]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{ $json.rateLimitKey }}"
+      },
+      "id": "get-rate-limit",
+      "name": "Get Rate Limit Count",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [900, 420],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check rate limiting\nconst maxRequests = parseInt($env.BRICK_RATE_LIMIT_REQUESTS) || 100;\nconst currentCount = parseInt($input.all()[0].json.value) || 0;\nconst rateLimitKey = $input.all()[0].json.rateLimitKey;\n\nif (currentCount >= maxRequests) {\n  return {\n    json: {\n      rateLimitExceeded: true,\n      response: {\n        ok: false,\n        error: 'Rate limit exceeded',\n        code: 'RATE_LIMITED',\n        timestamp: new Date().toISOString(),\n        limit: maxRequests,\n        current: currentCount\n      },\n      httpStatus: 429\n    }\n  };\n}\n\nreturn {\n  json: {\n    rateLimitExceeded: false,\n    currentCount: currentCount,\n    rateLimitKey: rateLimitKey,\n    maxRequests: maxRequests\n  }\n};"
+      },
+      "id": "check-rate-limit",
+      "name": "Check Rate Limit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 420]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "rate-exceeded",
+              "leftValue": "={{ $json.rateLimitExceeded }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "rate-limit-branch",
+      "name": "Rate Limit Exceeded?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1340, 420]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      },
+      "id": "rate-limit-error-response",
+      "name": "Return Rate Limit Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "operation": "increment",
+        "key": "={{ $json.rateLimitKey }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "id": "increment-rate-limit",
+      "name": "Increment Rate Limit",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1560, 540],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Authentication and rate limiting passed\n// Return success indicator for the calling workflow\nreturn {\n  json: {\n    authSuccess: true,\n    message: 'Authentication and rate limiting passed',\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "auth-success",
+      "name": "Auth Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 540]
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Check Authentication",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Authentication": {
+      "main": [
+        [
+          {
+            "node": "Auth Failed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Failed?": {
+      "main": [
+        [
+          {
+            "node": "Return Auth Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Rate Limit Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Rate Limit Count": {
+      "main": [
+        [
+          {
+            "node": "Check Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Rate Limit Exceeded?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rate Limit Exceeded?": {
+      "main": [
+        [
+          {
+            "node": "Return Rate Limit Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Increment Rate Limit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Increment Rate Limit": {
+      "main": [
+        [
+          {
+            "node": "Auth Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}

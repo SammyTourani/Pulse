@@ -1,0 +1,379 @@
+{
+  "name": "create_calendar_event",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook-brick/create_calendar_event",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ],
+      "webhookId": "create-calendar-event-webhook"
+    },
+    {
+      "parameters": {
+        "workflowId": "brick_auth_guard"
+      },
+      "id": "call-auth-guard",
+      "name": "Call Auth Guard",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare data for validation sub-workflow\nconst inputData = $input.all()[0].json;\n\nreturn {\n  json: {\n    brickName: 'create_calendar_event',\n    inputData: inputData.body || inputData,\n    originalInput: inputData.body || inputData,\n    headers: inputData.headers || {}\n  }\n};"
+      },
+      "id": "prepare-validation",
+      "name": "Prepare Validation Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": "brick_validate"
+      },
+      "id": "call-validate",
+      "name": "Call Validate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check MOCK_MODE and prepare business logic with enhanced validation\nconst inputData = $input.all()[0].json;\nconst mockMode = process.env.MOCK_MODE === 'true';\nconst validatedInput = inputData.originalInput;\nconst genericTimezone = process.env.GENERIC_TIMEZONE || 'UTC';\n\n// Enhanced validation and sanitization functions\nfunction validateAndSanitizeEmail(email) {\n  if (!email || typeof email !== 'string') {\n    throw new Error('Email address is required and must be a string');\n  }\n  \n  // Trim whitespace\n  email = email.trim();\n  \n  // Enhanced email validation regex\n  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;\n  \n  if (!emailRegex.test(email)) {\n    throw new Error('Invalid email address format');\n  }\n  \n  // Check for common security issues\n  if (email.includes('<script') || email.includes('javascript:')) {\n    throw new Error('Email address contains invalid characters');\n  }\n  \n  return email.toLowerCase();\n}\n\n// Sanitize text inputs\nfunction sanitizeText(text) {\n  if (!text || typeof text !== 'string') {\n    return text;\n  }\n  \n  // Remove potential XSS attempts\n  return text\n    .replace(/<script[^>]*>.*?<\\/script>/gis, '')\n    .replace(/javascript:/gi, '')\n    .replace(/on\\w+\\s*=/gi, '')\n    .trim();\n}\n\n// Validate ISO 8601 timestamp and timezone handling\nfunction validateAndParseISO(isoString, fieldName) {\n  if (!isoString || typeof isoString !== 'string') {\n    throw new Error(`${fieldName} is required and must be a string`);\n  }\n  \n  const date = new Date(isoString);\n  if (isNaN(date.getTime())) {\n    throw new Error(`${fieldName} must be a valid ISO 8601 timestamp`);\n  }\n  \n  return date;\n}\n\ntry {\n  // Validate and sanitize inputs\n  const sanitizedTitle = sanitizeText(validatedInput.title);\n  const sanitizedDescription = validatedInput.description ? sanitizeText(validatedInput.description) : undefined;\n  const sanitizedLocation = validatedInput.location ? sanitizeText(validatedInput.location) : undefined;\n  \n  // Validate timestamps\n  const startDate = validateAndParseISO(validatedInput.startISO, 'startISO');\n  const endDate = validateAndParseISO(validatedInput.endISO, 'endISO');\n  \n  // Additional validation\n  if (!sanitizedTitle || sanitizedTitle.length === 0) {\n    throw new Error('Title cannot be empty');\n  }\n  \n  if (sanitizedTitle.length > 1024) {\n    throw new Error('Title too long (max 1024 characters)');\n  }\n  \n  // Validate time range\n  if (endDate <= startDate) {\n    throw new Error('End time must be after start time');\n  }\n  \n  // Validate and sanitize guest emails\n  let sanitizedGuests = [];\n  if (validatedInput.guests && Array.isArray(validatedInput.guests)) {\n    for (let i = 0; i < validatedInput.guests.length; i++) {\n      try {\n        const sanitizedEmail = validateAndSanitizeEmail(validatedInput.guests[i]);\n        sanitizedGuests.push(sanitizedEmail);\n      } catch (error) {\n        throw new Error(`Guest email ${i + 1}: ${error.message}`);\n      }\n    }\n    \n    // Remove duplicates\n    sanitizedGuests = [...new Set(sanitizedGuests)];\n    \n    if (sanitizedGuests.length > 100) {\n      throw new Error('Too many guests (max 100)');\n    }\n  }\n  \n  if (mockMode) {\n    // Return mock response with sanitized data logged\n    console.log('MOCK MODE: create_calendar_event called with sanitized data:', {\n      title: sanitizedTitle.substring(0, 50) + (sanitizedTitle.length > 50 ? '...' : ''),\n      startISO: validatedInput.startISO,\n      endISO: validatedInput.endISO,\n      guestCount: sanitizedGuests.length,\n      hasDescription: !!sanitizedDescription,\n      hasLocation: !!sanitizedLocation,\n      timezone: genericTimezone\n    });\n    \n    return {\n      json: {\n        brickName: 'create_calendar_event',\n        success: true,\n        data: {\n          eventId: 'mock-event-123',\n          htmlLink: 'https://calendar.google.com/calendar/event?eid=mock-event-123'\n        },\n        originalInput: inputData.originalInput,\n        mockMode: true\n      }\n    };\n  }\n  \n  // Prepare for real Google Calendar API call with sanitized data\n  return {\n    json: {\n      brickName: 'create_calendar_event',\n      validatedInput: {\n        title: sanitizedTitle,\n        startISO: validatedInput.startISO,\n        endISO: validatedInput.endISO,\n        guests: sanitizedGuests,\n        description: sanitizedDescription,\n        location: sanitizedLocation\n      },\n      originalInput: inputData.originalInput,\n      mockMode: false,\n      title: sanitizedTitle,\n      startISO: validatedInput.startISO,\n      endISO: validatedInput.endISO,\n      guests: sanitizedGuests,\n      description: sanitizedDescription,\n      location: sanitizedLocation,\n      startTime: Date.now(),\n      timezone: genericTimezone\n    }\n  };\n  \n} catch (error) {\n  // Return validation error\n  return {\n    json: {\n      brickName: 'create_calendar_event',\n      success: false,\n      error: 'Input validation failed: ' + error.message,\n      code: 'VALIDATION_ERROR',\n      httpStatus: 400,\n      originalInput: inputData.originalInput\n    }\n  };\n}"
+      },
+      "id": "check-mock-mode",
+      "name": "Check Mock Mode & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validation-failed",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "validation-error-branch",
+      "name": "Validation Error?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format error response directly\nconst inputData = $input.all()[0].json;\nconst requestId = 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);\n\nconst response = {\n  ok: false,\n  error: inputData.error || \"An error occurred\",\n  code: inputData.code || \"INTERNAL_ERROR\",  brick: 'create_calendar_event',\n  timestamp: new Date().toISOString(),\n  requestId: requestId\n};\n\nreturn {\n  json: {\n    response: response,\n    httpStatus: inputData.httpStatus || 500\n  }\n};"
+      },
+      "id": "format-error-response",
+      "name": "Format Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      },
+      "id": "send-error-response",
+      "name": "Send Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendarId": "={{ process.env.GOOGLE_CALENDAR_ID || 'primary' }}",
+        "start": "={{ $json.startISO }}",
+        "end": "={{ $json.endISO }}",
+        "summary": "={{ $json.title }}",
+        "options": {
+          "description": "={{ $json.description || '' }}",
+          "location": "={{ $json.location || '' }}",
+          "attendees": "={{ $json.guests || [] }}"
+        }
+      },
+      "id": "create-calendar-event",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        480
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-oauth",
+          "name": "Google Calendar OAuth"
+        }
+      },
+      "continueOnFail": true,
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetween": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Enhanced Google Calendar API response processing with retry logic awareness\n// Requirements: 4.2, 8.1, 8.2, 11.1, 12.1\n\n// Import retry utilities for error classification\nconst { isCalendarErrorRetryable } = require('./flows/bricks/brick-retry-utils.js');\n\ntry {\n  const inputData = $input.all()[0].json;\n  const previousData = $input.all()[1]?.json || {};\n  \n  // Privacy-compliant logging function\n  function logWithPrivacy(level, message, data = {}) {\n    const sanitizedData = { ...data };\n    // Mask email addresses for privacy\n    if (sanitizedData.guests && Array.isArray(sanitizedData.guests)) {\n      sanitizedData.guests = sanitizedData.guests.map(() => '***@***');\n    }\n    if (sanitizedData.originalInput && sanitizedData.originalInput.guests) {\n      sanitizedData.originalInput = { \n        ...sanitizedData.originalInput, \n        guests: sanitizedData.originalInput.guests.map(() => '***@***')\n      };\n    }\n    console.log(`[${level.toUpperCase()}] Calendar Event Processing: ${message}`, sanitizedData);\n  }\n  \n  logWithPrivacy('info', 'Processing Google Calendar API response', {\n    hasError: !!inputData.error,\n    hasEventId: !!inputData.id,\n    hasHtmlLink: !!inputData.htmlLink\n  });\n  \n  // Check if Google Calendar API call was successful\n  if (inputData.error) {\n    // Determine if this error was retryable\n    const wasRetryable = isCalendarErrorRetryable(inputData.error);\n    \n    // Determine error type and appropriate HTTP status\n    let httpStatus = 502; // Default to bad gateway\n    let errorCode = 'CALENDAR_API_ERROR';\n    let errorMessage = 'Google Calendar API error after retries';\n    \n    if (typeof inputData.error === 'object') {\n      const error = inputData.error;\n      \n      // Handle specific Google Calendar API errors\n      if (error.code) {\n        switch (error.code) {\n          case 400:\n            httpStatus = 400;\n            errorCode = 'CALENDAR_BAD_REQUEST';\n            errorMessage = 'Invalid event data provided to Calendar API';\n            break;\n          case 401:\n            httpStatus = 502;\n            errorCode = 'CALENDAR_AUTH_ERROR';\n            errorMessage = 'Google Calendar authentication failed';\n            break;\n          case 403:\n            httpStatus = 502;\n            errorCode = 'CALENDAR_PERMISSION_ERROR';\n            errorMessage = 'Insufficient permissions for Google Calendar API';\n            break;\n          case 409:\n            httpStatus = 409;\n            errorCode = 'CALENDAR_CONFLICT';\n            errorMessage = 'Calendar event conflicts with existing event';\n            break;\n          case 429:\n            httpStatus = 503;\n            errorCode = 'CALENDAR_RATE_LIMITED';\n            errorMessage = 'Google Calendar API rate limit exceeded after retries';\n            break;\n          case 500:\n          case 502:\n          case 503:\n          case 504:\n            httpStatus = 502;\n            errorCode = 'CALENDAR_SERVER_ERROR';\n            errorMessage = 'Google Calendar API server error persisted after retries';\n            break;\n          default:\n            errorMessage = error.message || 'Unknown Google Calendar API error after retries';\n        }\n      } else {\n        errorMessage = error.message || error.toString();\n      }\n    } else {\n      errorMessage = inputData.error.toString();\n    }\n    \n    // Add retry context to error message if it was retryable\n    if (wasRetryable) {\n      errorMessage += ' (failed after exponential backoff retries)';\n    }\n    \n    logWithPrivacy('error', 'Google Calendar API call failed after retries', {\n      errorCode: errorCode,\n      httpStatus: httpStatus,\n      errorMessage: errorMessage,\n      wasRetryable: wasRetryable,\n      maxTriesUsed: 5\n    });\n    \n    return {\n      json: {\n        brickName: 'create_calendar_event',\n        success: false,\n        error: errorMessage,\n        code: errorCode,\n        httpStatus: httpStatus,\n        retryAttempted: wasRetryable,\n        maxRetries: 5,\n        originalInput: previousData.originalInput\n      }\n    };\n  }\n  \n  // Validate Google Calendar API response structure\n  if (!inputData.id) {\n    logWithPrivacy('error', 'Google Calendar API returned invalid response structure', {\n      responseKeys: Object.keys(inputData)\n    });\n    \n    return {\n      json: {\n        brickName: 'create_calendar_event',\n        success: false,\n        error: 'Google Calendar API returned invalid response - missing event ID',\n        code: 'CALENDAR_INVALID_RESPONSE',\n        httpStatus: 502,\n        originalInput: previousData.originalInput\n      }\n    };\n  }\n  \n  // Google Calendar API succeeded - validate event ID and htmlLink\n  const eventId = inputData.id;\n  const htmlLink = inputData.htmlLink || '';\n  \n  if (typeof eventId !== 'string' || eventId.length === 0) {\n    logWithPrivacy('error', 'Google Calendar API returned invalid event ID', {\n      eventIdType: typeof eventId,\n      eventIdLength: eventId ? eventId.length : 0\n    });\n    \n    return {\n      json: {\n        brickName: 'create_calendar_event',\n        success: false,\n        error: 'Google Calendar API returned invalid event ID format',\n        code: 'CALENDAR_INVALID_EVENT_ID',\n        httpStatus: 502,\n        originalInput: previousData.originalInput\n      }\n    };\n  }\n  \n  // Privacy-compliant logging with guest count instead of emails\n  const guestCount = previousData.guests ? previousData.guests.length : 0;\n  \n  logWithPrivacy('info', 'Calendar event created successfully with retry logic', {\n    eventIdLength: eventId.length,\n    eventIdPrefix: eventId.substring(0, 8) + '...',\n    hasHtmlLink: !!htmlLink,\n    guestCount: guestCount,\n    hasLocation: !!(previousData.location),\n    hasDescription: !!(previousData.description),\n    timezone: previousData.timezone || 'UTC',\n    timestamp: new Date().toISOString()\n  });\n  \n  // Return successful response\n  return {\n    json: {\n      brickName: 'create_calendar_event',\n      success: true,\n      data: {\n        eventId: eventId,\n        htmlLink: htmlLink\n      },\n      originalInput: previousData.originalInput,\n      duration: Date.now() - (previousData.startTime || Date.now())\n    }\n  };\n  \n} catch (error) {\n  // Handle unexpected errors in response processing\n  console.error('[ERROR] Unexpected error in Calendar response processing:', {\n    error: error.message,\n    stack: error.stack,\n    timestamp: new Date().toISOString()\n  });\n  \n  return {\n    json: {\n      brickName: 'create_calendar_event',\n      success: false,\n      error: 'Internal error processing Calendar response',\n      code: 'INTERNAL_PROCESSING_ERROR',\n      httpStatus: 500,\n      originalInput: ($input.all()[1]?.json || {}).originalInput\n    }\n  };\n}"
+      },
+      "id": "process-calendar-response",
+      "name": "Process Calendar Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format success response directly\nconst inputData = $input.all()[0].json;\nconst requestId = 'req_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);\n\nconst response = {\n  ok: true,\n  data: inputData.data,  brick: 'create_calendar_event',\n  timestamp: new Date().toISOString(),\n  requestId: requestId\n};\n\nreturn {\n  json: {\n    response: response,\n    httpStatus: 200\n  }\n};"
+      },
+      "id": "format-success-response",
+      "name": "Format Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.response }}",
+        "options": {
+          "responseCode": "={{ $json.httpStatus }}"
+        }
+      },
+      "id": "send-success-response",
+      "name": "Send Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2440,
+        480
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "start-node",
+      "name": "When called by another workflow",
+      "type": "n8n-nodes-base.start",
+      "typeVersion": 1,
+      "position": [
+        240,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Call Auth Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When called by another workflow": {
+      "main": [
+        [
+          {
+            "node": "Prepare Validation Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Auth Guard": {
+      "main": [
+        [
+          {
+            "node": "Prepare Validation Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Validation Data": {
+      "main": [
+        [
+          {
+            "node": "Call Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Validate": {
+      "main": [
+        [
+          {
+            "node": "Check Mock Mode & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Mock Mode & Validate": {
+      "main": [
+        [
+          {
+            "node": "Validation Error?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validation Error?": {
+      "main": [
+        [
+          {
+            "node": "Call Respond (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mock Mode?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mock Mode?": {
+      "main": [
+        [
+          {
+            "node": "Call Respond (Mock)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [
+        [
+          {
+            "node": "Process Calendar Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Calendar Response": {
+      "main": [
+        [
+          {
+            "node": "Call Respond (Real)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format-error-response": {
+      "main": [
+        [
+          {
+            "node": "send-error-response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format-success-response": {
+      "main": [
+        [
+          {
+            "node": "send-success-response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "versionId": "1"
+}
