@@ -1,0 +1,398 @@
+{
+  "name": "pulse.gateway",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pulse-gateway",
+        "responseMode": "responseNode",
+        "options": {
+          "noResponseBody": false
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "pulse-gateway-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "function validationError(code, message, extras = {}) {\n  return {\n    json: {\n      stage: \"validation_error\",\n      error: { code, message, retryable: false },\n      brick: extras.brick || 'unknown',\n      requestId: extras.requestId || null\n    }\n  };\n}\n\nconst wh = $node[\"Webhook Trigger\"]?.json || {};\nconst headers = wh.headers || {};\nconst headersLower = Object.fromEntries(Object.entries(headers).map(([k,v]) => [k.toLowerCase(), v]));\n\nconst timestamp = headersLower['x-pulse-timestamp'];\nconst providedSignature = headersLower['x-pulse-signature'];\nif (!timestamp) return validationError('MISSING_TIMESTAMP','Missing X-Pulse-Timestamp header');\nif (!providedSignature) return validationError('MISSING_SIGNATURE','Missing X-Pulse-Signature header');\n\n// Body: prefer webhook body; fallback to $json.body only if first is empty\nlet body = (wh.body && typeof wh.body === 'object') ? wh.body\n         : ($json && typeof $json.body === 'object') ? $json.body\n         : null;\nif (!body || typeof body !== 'object') return validationError('INVALID_JSON','Request body must be a valid JSON object');\n\nif (!body.brick) return validationError('MISSING_BRICK','Missing required field: brick',{ requestId: body.requestId });\nif (!body.connectionId) return validationError('MISSING_CONNECTION_ID','Missing required field: connectionId',{ brick: body.brick, requestId: body.requestId });\nif (!body.params || typeof body.params !== 'object') return validationError('INVALID_PARAMS','Missing or invalid params field',{ brick: body.brick, requestId: body.requestId });\n\n// Check for HMAC secret availability\nconst hmacSecret = $env.PULSE_HMAC_SECRET || '58222cced25229c292d807ae59d64961197daf2692d06f566e58694502a258c8';\nif (!hmacSecret) return validationError('MISSING_HMAC_SECRET','HMAC secret not configured',{ brick: body.brick, requestId: body.requestId });\n\nconst hmacPayload = String(timestamp) + JSON.stringify(body);\n\nconst subInput = { connectionId: body.connectionId, ...body.params };\nif (body.requestId) subInput.requestId = body.requestId;\nif (body.idempotencyKey) subInput.idempotencyKey = body.idempotencyKey;\n\n// Success - validation complete\nreturn {\n  json: {\n    stage: \"validated\",\n    timestamp: String(timestamp),\n    providedSignature,\n    hmacPayload,\n    hmacSecret,\n    brick: body.brick,\n    connectionId: body.connectionId,\n    requestId: body.requestId || null,\n    idempotencyKey: body.idempotencyKey || null,\n    subInput\n  }\n};"
+      },
+      "id": "prepare-request",
+      "name": "Prepare Request & HMAC Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.stage }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "validation_error",
+              "output": 0
+            },
+            {
+              "value2": "validated",
+              "output": 1
+            }
+          ]
+        }
+      },
+      "id": "stage-router",
+      "name": "Stage Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [580, 300]
+    },
+    {
+      "parameters": {
+        "operation": "hmac",
+        "dataPropertyName": "data",
+        "value": "={{ $json.hmacPayload }}",
+        "secret": "={{ $json.hmacSecret }}",
+        "algorithm": "sha256",
+        "encoding": "hex"
+      },
+      "id": "crypto-hmac",
+      "name": "Crypto",
+      "type": "n8n-nodes-base.crypto",
+      "typeVersion": 1,
+      "position": [780, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compare Signature with proper SHA256 handling\nlet providedSignature = $json.providedSignature || '';\n\n// Strip sha256= prefix if present\nif (providedSignature.startsWith('sha256=')) {\n  providedSignature = providedSignature.slice(7);\n}\n\nconst computedSignature = $node[\"Crypto\"].json.data;\nconst timestamp = parseInt($json.timestamp);\nconst currentTime = Math.floor(Date.now() / 1000);\n\n// Check timestamp skew (±300 seconds)\nconst timeDiff = Math.abs(currentTime - timestamp);\nif (timeDiff > 300) {\n  return {\n    json: {\n      stage: \"auth_error\",\n      error: {\n        code: 'TIMESTAMP_SKEW',\n        message: `Timestamp skew too large: ${timeDiff}s (max 300s)`,\n        retryable: false\n      },\n      brick: $json.brick,\n      requestId: $json.requestId\n    }\n  };\n}\n\n// Constant-time comparison with lowercase\nfunction constantTimeCompare(a, b) {\n  if (a.length !== b.length) return false;\n  let result = 0;\n  for (let i = 0; i < a.length; i++) {\n    result |= a.charCodeAt(i) ^ b.charCodeAt(i);\n  }\n  return result === 0;\n}\n\nif (!constantTimeCompare(providedSignature.toLowerCase(), computedSignature.toLowerCase())) {\n  return {\n    json: {\n      stage: \"auth_error\",\n      error: {\n        code: 'INVALID_SIGNATURE',\n        message: 'HMAC signature verification failed',\n        retryable: false\n      },\n      brick: $json.brick,\n      requestId: $json.requestId\n    }\n  };\n}\n\n// Signature valid - proceed to routing\nreturn {\n  json: {\n    stage: \"auth_ok\",\n    brick: $json.brick,\n    connectionId: $json.connectionId,\n    requestId: $json.requestId,\n    idempotencyKey: $json.idempotencyKey,\n    subInput: $json.subInput\n  }\n};"
+      },
+      "id": "compare-signature",
+      "name": "Compare Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1000, 380]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.stage }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "auth_error",
+              "output": 0
+            },
+            {
+              "value2": "auth_ok",
+              "output": 1
+            }
+          ]
+        }
+      },
+      "id": "auth-router",
+      "name": "Auth Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1120, 380]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.brick }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "gmail.search_messages",
+              "output": 0
+            },
+            {
+              "value2": "gmail.create_email_draft",
+              "output": 1
+            },
+            {
+              "value2": "gmail.send_email",
+              "output": 2
+            }
+          ]
+        }
+      },
+      "id": "router-switch",
+      "name": "Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1340, 380]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Return validation error in normalized format\nconst e = $json.error || {};\nconst brick = $json.brick || 'unknown';\nconst requestId = $json.requestId || null;\n\nreturn {\n  json: {\n    ok: false,\n    brick,\n    brickVersion: 'v1',\n    timestamp: new Date().toISOString(),\n    requestId,\n    error: {\n      code: e.code || 'VALIDATION_ERROR',\n      message: e.message || 'Validation failed',\n      retryable: e.retryable || false,\n      details: e.details || undefined,\n    },\n  },\n};"
+      },
+      "id": "return-validation-error",
+      "name": "Return Validation Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 220]
+    },
+    {
+      "parameters": {
+        "workflowId": "A7KEFe9iCNKHoiEB",
+        "waitForSubWorkflow": true,
+        "additionalFields": {
+          "input": "={{ $json.subInput }}"
+        }
+      },
+      "id": "execute-gmail-search",
+      "name": "Execute Gmail Search",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1440, 280]
+    },
+    {
+      "parameters": {
+        "workflowId": "7wzqiWBOLY4z5nTV",
+        "waitForSubWorkflow": true,
+        "additionalFields": {
+          "input": "={{ $json.subInput }}"
+        }
+      },
+      "id": "execute-gmail-draft",
+      "name": "Execute Gmail Draft",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1440, 380]
+    },
+    {
+      "parameters": {
+        "workflowId": "6yLecDWftZ3gpfkU",
+        "waitForSubWorkflow": true,
+        "additionalFields": {
+          "input": "={{ $json.subInput }}"
+        }
+      },
+      "id": "execute-gmail-send",
+      "name": "Execute Gmail Send",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1440, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Unknown Brick Error\nconst brick = $json.brick || 'unknown';\nconst requestId = $json.requestId || null;\n\nreturn {\n  json: {\n    ok: false,\n    brick,\n    brickVersion: 'v1',\n    timestamp: new Date().toISOString(),\n    requestId,\n    error: {\n      code: 'UNKNOWN_BRICK',\n      message: `Unknown brick: ${brick}`,\n      retryable: false,\n      details: {\n        availableBricks: ['gmail.search_messages', 'gmail.create_email_draft', 'gmail.send_email']\n      }\n    }\n  }\n};"
+      },
+      "id": "unknown-brick-error",
+      "name": "Unknown Brick Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 580]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize Response with stage handling\nconst response = $json;\n\n// Handle stage-based responses\nif (response.stage === 'validation_error' || response.stage === 'auth_error') {\n  const brick = response.brick || 'unknown';\n  const requestId = response.requestId || null;\n  const error = response.error || { code: 'UNKNOWN_ERROR', message: 'Unknown error occurred', retryable: false };\n  \n  return {\n    json: {\n      ok: false,\n      brick,\n      brickVersion: 'v1',\n      timestamp: new Date().toISOString(),\n      requestId,\n      error\n    }\n  };\n}\n\n// Determine brick and requestId from previous nodes\nlet brick = 'unknown';\nlet requestId = null;\n\n// Try to get from Compare Signature or Auth Error nodes\ntry {\n  const compareData = $node[\"Compare Signature\"]?.json;\n  if (compareData) {\n    brick = compareData.brick || 'unknown';\n    requestId = compareData.requestId || null;\n  }\n} catch (e) {\n  // Fallback to current data\n  brick = response.brick || 'unknown';\n  requestId = response.requestId || null;\n}\n\nconst timestamp = new Date().toISOString();\n\n// If response is already normalized (has ok field), pass it through\nif (response && response.hasOwnProperty('ok')) {\n  return { json: response };\n}\n\n// For successful responses from Execute Workflow nodes\nif (response && typeof response === 'object' && !response.error) {\n  return {\n    json: {\n      ok: true,\n      brick,\n      brickVersion: 'v1',\n      timestamp,\n      requestId,\n      data: response,\n      cached: false\n    }\n  };\n}\n\n// For error responses\nreturn {\n  json: {\n    ok: false,\n    brick,\n    brickVersion: 'v1',\n    timestamp,\n    requestId,\n    error: {\n      code: 'EXECUTION_ERROR',\n      message: response && response.error && response.error.message ? response.error.message : 'Unknown error occurred',\n      retryable: false\n    }\n  }\n};"
+      },
+      "id": "normalize-response",
+      "name": "Normalize Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1660, 430]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "respond-to-webhook",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1880, 350]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Request & HMAC Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Request & HMAC Payload": {
+      "main": [
+        [
+          {
+            "node": "Stage Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage Router": {
+      "main": [
+        [
+          {
+            "node": "Return Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Crypto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Validation Error": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crypto": {
+      "main": [
+        [
+          {
+            "node": "Compare Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare Signature": {
+      "main": [
+        [
+          {
+            "node": "Auth Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Router": {
+      "main": [
+        [
+          {
+            "node": "Normalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Router": {
+      "main": [
+        [
+          {
+            "node": "Execute Gmail Search",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Gmail Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Execute Gmail Send",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Unknown Brick Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Gmail Search": {
+      "main": [
+        [
+          {
+            "node": "Normalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Gmail Draft": {
+      "main": [
+        [
+          {
+            "node": "Normalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Gmail Send": {
+      "main": [
+        [
+          {
+            "node": "Normalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Unknown Brick Error": {
+      "main": [
+        [
+          {
+            "node": "Normalize Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "pulse-gateway-v1"
+}

@@ -1,0 +1,196 @@
+{
+  "name": "summarize_emails",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare parameters for email fetching with comprehensive debugging\nconst input = $input.all()[0]?.json || {};\n\n// Default to today's emails if no specific timeframe provided\nconst hoursBack = input.hoursBack || 24;\nconst maxEmails = input.maxEmails || 20;\nconst onlyUnread = input.onlyUnread !== false; // default true\n\n// Calculate date filter (Gmail uses YYYY/MM/DD format)\nconst cutoffDate = new Date();\ncutoffDate.setHours(cutoffDate.getHours() - hoursBack);\nconst dateFilter = cutoffDate.toISOString().split('T')[0].replace(/-/g, '/');\n\n// Build Gmail search query\nlet query = `after:${dateFilter}`;\nif (onlyUnread) {\n  query += ' is:unread';\n}\n// Exclude automated emails\nquery += ' -from:noreply -from:no-reply -from:donotreply';\n\nconsole.log('Email Query Prepared:', {\n  hoursBack,\n  maxEmails,\n  onlyUnread,\n  dateFilter,\n  query\n});\n\nreturn [{\n  json: {\n    query: query,\n    maxEmails: maxEmails,\n    hoursBack: hoursBack,\n    dateFilter: dateFilter,\n    onlyUnread: onlyUnread,\n    debug: {\n      step: 'query-preparation',\n      timestamp: new Date().toISOString(),\n      query: query\n    }\n  }\n}];"
+      },
+      "id": "prepare-email-query",
+      "name": "Prepare Email Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": "={{ $json.maxEmails }}",
+        "filters": {
+          "q": "={{ $json.query }}"
+        },
+        "options": {
+          "format": "full",
+          "includeSpamTrash": false
+        }
+      },
+      "id": "fetch-emails",
+      "name": "Fetch Recent Emails",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [680, 300],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail-oauth",
+          "name": "Gmail OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process and clean email data for AI summarization with comprehensive debugging\nconst items = $input.all();\n\nconsole.log('Process Email Data - Input received:', {\n  itemCount: items?.length || 0,\n  hasItems: !!items,\n  firstItemExists: !!(items && items[0]),\n  firstItemHasJson: !!(items && items[0] && items[0].json)\n});\n\nif (!items || items.length === 0) {\n  console.log('No input items received');\n  return [{\n    json: {\n      emailCount: 0,\n      summary: \"No input data received from Gmail fetch.\",\n      ok: false,\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      needsSummary: false,\n      debug: {\n        step: 'process-emails',\n        issue: 'no-input-items',\n        itemCount: 0\n      }\n    }\n  }];\n}\n\nif (!items[0] || !items[0].json) {\n  console.log('First item missing or has no JSON data');\n  return [{\n    json: {\n      emailCount: 0,\n      summary: \"Invalid data structure from Gmail fetch.\",\n      ok: false,\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      needsSummary: false,\n      debug: {\n        step: 'process-emails',\n        issue: 'invalid-data-structure',\n        hasFirstItem: !!items[0],\n        hasJson: !!(items[0] && items[0].json)\n      }\n    }\n  }];\n}\n\n// Check if Gmail returned an error\nif (items[0].json.error) {\n  console.log('Gmail API returned an error:', items[0].json.error);\n  return [{\n    json: {\n      emailCount: 0,\n      summary: `Gmail API error: ${items[0].json.error}`,\n      ok: false,\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      needsSummary: false,\n      debug: {\n        step: 'process-emails',\n        issue: 'gmail-api-error',\n        error: items[0].json.error\n      }\n    }\n  }];\n}\n\nconst emails = items.map(item => item.json);\nconsole.log(`Raw emails fetched: ${emails.length}`);\n\n// Helper function to extract plain text from email body\nfunction extractTextFromEmail(email) {\n  let text = '';\n  \n  if (email.payload) {\n    // Handle multipart emails\n    if (email.payload.parts) {\n      for (const part of email.payload.parts) {\n        if (part.mimeType === 'text/plain' && part.body.data) {\n          text += Buffer.from(part.body.data, 'base64').toString('utf-8');\n        }\n      }\n    }\n    // Handle single part emails\n    else if (email.payload.mimeType === 'text/plain' && email.payload.body.data) {\n      text = Buffer.from(email.payload.body.data, 'base64').toString('utf-8');\n    }\n  }\n  \n  // Clean up the text\n  return text\n    .replace(/\\r\\n/g, '\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim()\n    .substring(0, 1000); // Limit to 1000 chars per email\n}\n\n// Helper function to get header value\nfunction getHeader(email, name) {\n  if (!email.payload || !email.payload.headers) return '';\n  const header = email.payload.headers.find(h => h.name.toLowerCase() === name.toLowerCase());\n  return header ? header.value : '';\n}\n\n// Process emails for summarization\nconst processedEmails = emails.map((email, index) => {\n  const processed = {\n    from: getHeader(email, 'From'),\n    subject: getHeader(email, 'Subject'),\n    date: getHeader(email, 'Date'),\n    snippet: email.snippet || '',\n    bodyText: extractTextFromEmail(email)\n  };\n  \n  console.log(`Email ${index + 1}:`, {\n    from: processed.from,\n    subject: processed.subject,\n    hasDate: !!processed.date,\n    hasSnippet: !!processed.snippet,\n    bodyLength: processed.bodyText.length\n  });\n  \n  return processed;\n}).filter(email => {\n  const hasBasicInfo = email.from && email.subject;\n  \n  // More lenient filtering - only exclude obvious automated emails\n  const isNotAutomated = !email.from.toLowerCase().includes('donotreply') && \n                         !email.from.toLowerCase().includes('do-not-reply') &&\n                         !email.subject.toLowerCase().includes('unsubscribe') &&\n                         !email.subject.toLowerCase().includes('automated');\n  \n  // Allow noreply emails through if they have meaningful content\n  const passes = hasBasicInfo && isNotAutomated;\n  \n  if (!passes) {\n    console.log('Email filtered out:', {\n      from: email.from,\n      subject: email.subject,\n      hasBasicInfo,\n      isNotAutomated,\n      reason: !hasBasicInfo ? 'missing basic info' : 'automated email'\n    });\n  } else {\n    console.log('Email accepted:', {\n      from: email.from,\n      subject: email.subject\n    });\n  }\n  \n  return passes;\n});\n\nconsole.log(`Processed emails after filtering: ${processedEmails.length}`);\n\nif (processedEmails.length === 0) {\n  console.log('No emails passed filtering');\n  return [{\n    json: {\n      emailCount: 0,\n      summary: \"No relevant emails found to summarize (all emails were filtered out).\",\n      ok: true,\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      needsSummary: false,\n      debug: {\n        step: 'process-emails',\n        issue: 'all-emails-filtered',\n        rawEmailCount: emails.length,\n        processedEmailCount: 0,\n        reason: \"All emails were either missing basic info or from noreply addresses\"\n      }\n    }\n  }];\n}\n\n// Prepare data for Gemini API call\nconst emailsForAI = processedEmails.slice(0, 10); // Limit to 10 emails max\n\nconsole.log('Successfully processed emails for AI:', {\n  finalCount: emailsForAI.length,\n  needsSummary: true\n});\n\nreturn [{\n  json: {\n    emailCount: emailsForAI.length,\n    emails: emailsForAI,\n    needsSummary: true,\n    debug: {\n      step: 'process-emails',\n      rawEmailCount: emails.length,\n      processedEmailCount: processedEmails.length,\n      finalEmailCount: emailsForAI.length,\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "process-emails",
+      "name": "Process Email Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "id": "needs-summary-check",
+              "value1": "={{ $json.needsSummary }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "needs-summary-check",
+      "name": "Needs AI Summary?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Gemini API request with comprehensive debugging\nconst inputItems = $input.all();\n\nconsole.log('Prepare Gemini Request - Input received:', {\n  itemCount: inputItems?.length || 0,\n  hasItems: !!inputItems,\n  firstItemExists: !!(inputItems && inputItems[0]),\n  firstItemHasJson: !!(inputItems && inputItems[0] && inputItems[0].json)\n});\n\nif (!inputItems || inputItems.length === 0) {\n  console.log('No input items received in Prepare Gemini Request');\n  return [{\n    json: {\n      ok: false,\n      error: \"No input data received in Prepare Gemini Request\",\n      code: \"NO_INPUT_DATA\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      debug: {\n        step: 'prepare-gemini-request',\n        issue: 'no-input-items'\n      }\n    }\n  }];\n}\n\nconst data = inputItems[0].json;\n\nconsole.log('Data received in Prepare Gemini Request:', {\n  hasData: !!data,\n  hasEmails: !!(data && data.emails),\n  emailCount: data?.emails?.length || 0,\n  dataKeys: data ? Object.keys(data) : 'no data',\n  needsSummary: data?.needsSummary\n});\n\n// Add a safeguard in case this node is reached without emails\nif (!data || !data.emails || data.emails.length === 0) {\n  console.log('No emails found in data');\n  return [{\n    json: {\n      ok: false,\n      error: \"Attempted to summarize with no emails.\",\n      code: \"LOGIC_ERROR\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      debug: {\n        step: 'prepare-gemini-request',\n        issue: 'no-emails',\n        hasData: !!data,\n        hasEmails: !!(data && data.emails),\n        emailCount: data?.emails?.length || 0\n      }\n    }\n  }];\n}\n\nconst emails = data.emails;\nconsole.log(`Building context for ${emails.length} emails`);\n\n// Build context for Gemini\nconst emailContext = emails.map((email, i) => \n  `EMAIL ${i + 1}:\n` +\n  `From: ${email.from}\n` +\n  `Subject: ${email.subject}\n` +\n  `Date: ${email.date}\n` +\n  `Content: ${email.bodyText || email.snippet}\n` +\n  `---`\n).join('\\n\\n');\n\nconst prompt = `You are an AI assistant helping summarize recent emails. Please analyze these ${emails.length} emails and create a concise, organized summary.\n\n${emailContext}\n\nPlease provide a summary in this format:\n\n# Email Summary (${emails.length} emails)\n\n## 🔥 Urgent/Important\n[List any urgent emails requiring immediate attention]\n\n## 📅 Meetings & Events\n[List any meeting invitations, calendar events, or scheduling]\n\n## 💼 Work Updates\n[List work-related updates, project communications, etc.]\n\n## 📧 Other Communications\n[List other notable emails]\n\n## 📊 Summary Stats\n- Total emails: ${emails.length}\n- Time period: Last 24 hours\n- Unread count: [count if available]\n\nKeep it concise but informative. Focus on actionable items and important communications.`;\n\nconst geminiPayload = {\n  contents: [{\n    parts: [{\n      text: prompt\n    }]\n  }],\n  generationConfig: {\n    temperature: 0.3,\n    topK: 40,\n    topP: 0.95,\n    maxOutputTokens: 1000\n  }\n};\n\nconsole.log('Gemini payload prepared successfully:', {\n  emailCount: emails.length,\n  promptLength: prompt.length,\n  hasPayload: !!geminiPayload\n});\n\nreturn [{\n  json: {\n    geminiPayload: geminiPayload,\n    emailCount: emails.length,\n    originalData: data,\n    debug: {\n      step: 'prepare-gemini-request',\n      emailCount: emails.length,\n      promptLength: prompt.length,\n      timestamp: new Date().toISOString()\n    }\n  }\n}];"
+      },
+      "id": "prepare-gemini-request",
+      "name": "Prepare Gemini Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Call Gemini API with comprehensive debugging and error handling\nconst inputItems = $input.all();\n\nconsole.log('Call Gemini API - Input received:', {\n  itemCount: inputItems?.length || 0,\n  hasItems: !!inputItems,\n  firstItemExists: !!(inputItems && inputItems[0]),\n  firstItemHasJson: !!(inputItems && inputItems[0] && inputItems[0].json)\n});\n\n// Debug: Check if we have input data\nif (!inputItems || inputItems.length === 0) {\n  console.log('No input data received in Call Gemini API');\n  return [{\n    json: {\n      ok: false,\n      error: \"No input data received\",\n      code: \"NO_INPUT_DATA\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      debug: { \n        step: 'call-gemini-api',\n        issue: 'no-input-data',\n        inputLength: inputItems ? inputItems.length : 'undefined' \n      }\n    }\n  }];\n}\n\nconst data = inputItems[0].json;\n\nconsole.log('Data received in Call Gemini API:', {\n  hasData: !!data,\n  hasGeminiPayload: !!(data && data.geminiPayload),\n  dataKeys: data ? Object.keys(data) : 'no data',\n  emailCount: data?.emailCount\n});\n\n// Safeguard in case this node is reached without proper data\nif (!data || !data.geminiPayload) {\n  console.log('No Gemini payload found in Call Gemini API');\n  return [{\n    json: {\n      ok: false,\n      error: \"No Gemini payload found\",\n      code: \"LOGIC_ERROR\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      debug: { \n        step: 'call-gemini-api',\n        issue: 'no-gemini-payload',\n        hasData: !!data,\n        hasGeminiPayload: !!(data && data.geminiPayload),\n        dataKeys: data ? Object.keys(data) : 'no data'\n      }\n    }\n  }];\n}\n\nconst geminiPayload = data.geminiPayload;\nconst apiKey = \"YOUR_API_KEY_HERE\"; // Replace with actual API key\nconst url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;\n\nconsole.log('Making Gemini API call:', {\n  url: url.replace(apiKey, 'HIDDEN_API_KEY'),\n  hasPayload: !!geminiPayload,\n  payloadSize: JSON.stringify(geminiPayload).length\n});\n\n// Check if API key is still placeholder\nif (apiKey === \"YOUR_API_KEY_HERE\") {\n  console.log('API key is still placeholder');\n  return [{\n    json: {\n      ok: false,\n      error: \"API key not configured\",\n      code: \"CONFIG_ERROR\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      debug: {\n        step: 'call-gemini-api',\n        issue: 'api-key-not-configured',\n        message: 'Please replace YOUR_API_KEY_HERE with actual Gemini API key'\n      }\n    }\n  }];\n}\n\ntry {\n  const response = await fetch(url, {\n    method: 'POST',\n    headers: {\n      'Content-Type': 'application/json'\n    },\n    body: JSON.stringify(geminiPayload)\n  });\n\n  console.log('Gemini API response received:', {\n    status: response.status,\n    statusText: response.statusText,\n    ok: response.ok\n  });\n\n  if (!response.ok) {\n    const errorText = await response.text();\n    console.log('Gemini API error response:', errorText);\n    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);\n  }\n\n  const responseData = await response.json();\n  \n  console.log('Gemini API success:', {\n    hasCandidates: !!(responseData.candidates && responseData.candidates.length > 0),\n    candidateCount: responseData.candidates?.length || 0\n  });\n\n  return [{\n    json: {\n      ...responseData,\n      debug: {\n        step: 'call-gemini-api',\n        success: true,\n        timestamp: new Date().toISOString(),\n        emailCount: data.emailCount\n      }\n    }\n  }];\n} catch (error) {\n  console.error('Gemini API error:', error);\n  return [{\n    json: {\n      ok: false,\n      error: \"Failed to generate AI summary\",\n      code: \"GEMINI_API_ERROR\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      fallbackSummary: `Found ${data.emailCount || 0} recent emails. AI summarization temporarily unavailable.`,\n      errorDetails: error.message,\n      debug: {\n        step: 'call-gemini-api',\n        issue: 'api-call-failed',\n        errorMessage: error.message,\n        timestamp: new Date().toISOString()\n      }\n    }\n  }];\n}"
+      },
+      "id": "call-gemini-api",
+      "name": "Call Gemini API",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 480]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Gemini response and format final output\nconst inputItems = $input.all();\n\n// Debug: Check if we have input data\nif (!inputItems || inputItems.length === 0) {\n  return [{\n    json: {\n      ok: false,\n      error: \"No input data received in format response\",\n      code: \"NO_INPUT_DATA\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString()\n    }\n  }];\n}\n\nconst geminiResponse = inputItems[0].json;\n\n// Check if this is an error response from the Gemini API call\nif (!geminiResponse) {\n  return [{\n    json: {\n      ok: false,\n      error: \"No response data from Gemini API\",\n      code: \"EMPTY_RESPONSE\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString()\n    }\n  }];\n}\n\n// If it's already an error response, pass it through\nif (geminiResponse.ok === false) {\n  return [{ json: geminiResponse }];\n}\n\ntry {\n  // Extract the summary from Gemini response\n  let summary = \"Unable to generate summary.\";\n  \n  if (geminiResponse.candidates && \n      geminiResponse.candidates[0] && \n      geminiResponse.candidates[0].content && \n      geminiResponse.candidates[0].content.parts && \n      geminiResponse.candidates[0].content.parts[0]) {\n    \n    summary = geminiResponse.candidates[0].content.parts[0].text;\n  }\n  \n  // Clean up the summary\n  summary = summary\n    .replace(/\\*\\*/g, '**') // Ensure markdown formatting\n    .replace(/\\n{3,}/g, '\\n\\n') // Clean excessive newlines\n    .trim();\n  \n  return [{\n    json: {\n      ok: true,\n      summary: summary,\n      emailCount: geminiResponse.emailCount || 'unknown',\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      metadata: {\n        generatedBy: \"gemini-2.0-flash-exp\",\n        processingTime: new Date().toISOString()\n      }\n    }\n  }];\n  \n} catch (error) {\n  // Handle Gemini API errors gracefully\n  console.error('Gemini API error:', error);\n  \n  return [{\n    json: {\n      ok: false,\n      error: \"Failed to process AI summary\",\n      code: \"PROCESSING_ERROR\",\n      brick: \"summarize_emails\",\n      timestamp: new Date().toISOString(),\n      fallbackSummary: \"AI summarization temporarily unavailable.\",\n      errorDetails: error.message\n    }\n  }];\n}"
+      },
+      "id": "format-final-response",
+      "name": "Format Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 480]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email Query": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent Emails": {
+      "main": [
+        [
+          {
+            "node": "Process Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Email Data": {
+      "main": [
+        [
+          {
+            "node": "Needs AI Summary?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs AI Summary?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gemini Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Prepare Gemini Request": {
+      "main": [
+        [
+          {
+            "node": "Call Gemini API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Gemini API": {
+      "main": [
+        [
+          {
+            "node": "Format Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": ["pulse", "brick", "email", "ai"],
+  "triggerCount": 0,
+  "updatedAt": "2025-08-04T00:00:00.000Z",
+  "versionId": "2"
+}

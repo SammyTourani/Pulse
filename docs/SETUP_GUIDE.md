@@ -196,6 +196,9 @@ Edit your `.env` file with all required values:
 N8N_BASIC_AUTH_USER=admin
 N8N_BASIC_AUTH_PASSWORD=your-secure-password-123
 
+# Pulse Gateway Security (generate with: openssl rand -hex 32)
+PULSE_HMAC_SECRET=your-32-character-hex-secret-here
+
 # Database
 DB_POSTGRESDB_PASSWORD=your-db-password
 

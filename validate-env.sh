@@ -62,6 +62,12 @@ check_env_var "TWILIO_ACCOUNT_SID" "Twilio account SID for SMS notifications"
 check_env_var "TWILIO_AUTH_TOKEN" "Twilio authentication token"
 check_env_var "TWILIO_FROM_NUMBER" "Twilio phone number for sending SMS"
 
+# Required Pulse Gateway configuration
+echo
+echo "🔐 Pulse Gateway Security:"
+check_env_var "PULSE_HMAC_SECRET" "HMAC secret for Pulse Gateway signature verification (32-character hex)"
+check_env_var "BRICK_AUTH_KEY" "Authentication key for brick endpoints" true
+
 # Required user configuration
 echo
 echo "👤 User Configuration:"

@@ -216,6 +216,7 @@ GOOGLE_CALENDAR_ID=primary
 | ------------------------- | -------------------------------- | -------- | ------- |
 | `N8N_BASIC_AUTH_USER`     | n8n web interface username       | ✅       | -       |
 | `N8N_BASIC_AUTH_PASSWORD` | n8n web interface password       | ✅       | -       |
+| `PULSE_HMAC_SECRET`       | HMAC secret for gateway auth     | ✅       | -       |
 | `GEMINI_API_KEY`          | Google Gemini API key            | ✅       | -       |
 | `GOOGLE_CLIENT_ID`        | Gmail OAuth2 client ID           | ✅       | -       |
 | `GOOGLE_CLIENT_SECRET`    | Gmail OAuth2 client secret       | ✅       | -       |
@@ -873,6 +874,7 @@ docker compose up -d
 
 For detailed troubleshooting guides, see:
 - [Setup Guide](docs/SETUP_GUIDE.md) - Complete setup instructions
+- [Gateway Setup](docs/GATEWAY_SETUP.md) - Manual workflow import and configuration
 - [Production Deployment](docs/PRODUCTION_DEPLOYMENT.md) - Production troubleshooting
 - [Monitoring Guide](docs/MONITORING_LIMITS.md) - Performance and monitoring
 

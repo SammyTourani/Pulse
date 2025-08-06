@@ -1,0 +1,130 @@
+{
+  "name": "gmail.search_messages",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input validation and cache key generation - handles flat, nested, or wrapped (subInput)\nconst root = $json ?? {};                       // n8n runs Code per item, so $json is the item\nconst input = root.subInput ?? root;            // support accidental wrap: { subInput: {...} }\n\nconst query = input.query ?? input.params?.query;\nconst pageSize = input.pageSize ?? input.maxResults ?? input.params?.pageSize ?? input.params?.maxResults ?? 10;\nconst userId = input.userId ?? input.params?.userId ?? 'me';\nconst pageToken = input.pageToken ?? input.params?.pageToken;\nconst connectionId = input.connectionId;\nconst requestId = input.requestId ?? input.params?.requestId ?? null;\nconst tenantId = input.tenantId ?? input.params?.tenantId;\n\n// Validate required fields\nif (!query) throw new Error('query field is required');\nif (!connectionId) throw new Error('connectionId field is required');\nif (pageSize && (pageSize < 1 || pageSize > 100)) throw new Error('pageSize must be between 1 and 100');\n\nconst normalizedQuery = String(query).trim();\nif (!normalizedQuery) throw new Error('query cannot be empty');\n\n// Generate cache key (include query + pageToken)\nconst selectiveInputs = { query: normalizedQuery, pageSize, pageToken: pageToken || null, userId };\nfunction simpleHash(str) { let h=0; for (let i=0;i<str.length;i++){ const c=str.charCodeAt(i); h=((h<<5)-h)+c; h|=0;} return Math.abs(h).toString(36); }\nconst inputHash = simpleHash(JSON.stringify(selectiveInputs));\nconst cacheKey = `gmail.search_messages:${inputHash}`;\n\nreturn {\n  json: {\n    userId,\n    tenantId,\n    requestId,\n    connectionId,\n    query: normalizedQuery,\n    pageSize,\n    pageToken,\n    cacheKey,\n    cacheTtl: 300,\n    originalInput: selectiveInputs\n  }\n};"
+      },
+      "id": "input-validation",
+      "name": "Input Validation & Cache Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "getAll",
+        "userId": "={{ $json.userId }}",
+        "filters": {
+          "q": "={{ $json.query }}",
+          "maxResults": "={{ $json.pageSize }}",
+          "pageToken": "={{ $json.pageToken }}"
+        }
+      },
+      "id": "gmail-search",
+      "name": "Gmail Search Messages",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "credentials": {
+        "gmailOAuth2": "Gmail OAuth2"
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "userId": "={{ $node[\"Input Validation & Cache Key\"].json.userId }}",
+        "format": "metadata",
+        "additionalFields": {
+          "metadataHeaders": ["From", "To", "Subject", "Date"]
+        }
+      },
+      "id": "gmail-get-message",
+      "name": "Gmail Get Message Details",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "credentials": {
+        "gmailOAuth2": "Gmail OAuth2"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Gmail API response and format results\nconst items = $input.all();\nconst validationData = $node[\"Input Validation & Cache Key\"].json;\nconst searchData = $node[\"Gmail Search Messages\"].json;\n\n// Transform Gmail messages to our standard format\nfunction transformMessage(gmailMessage) {\n  const headers = gmailMessage.payload?.headers || [];\n  \n  function getHeader(name) {\n    const header = headers.find(h => h.name.toLowerCase() === name.toLowerCase());\n    return header ? header.value : '';\n  }\n  \n  return {\n    id: gmailMessage.id,\n    threadId: gmailMessage.threadId,\n    snippet: gmailMessage.snippet || '',\n    from: getHeader('From'),\n    subject: getHeader('Subject'),\n    date: getHeader('Date'),\n    unread: gmailMessage.labelIds?.includes('UNREAD') || false,\n    labels: gmailMessage.labelIds || []\n  };\n}\n\n// Transform all messages\nconst transformedMessages = items.map(item => transformMessage(item.json));\n\n// Extract pagination info\nconst nextPageToken = searchData?.nextPageToken ?? null;\nconst totalCount = searchData?.resultSizeEstimate ?? transformedMessages.length;\n\nconst responseData = {\n  messages: transformedMessages,\n  totalCount: totalCount,\n  query: validationData.query,\n  pageSize: validationData.pageSize,\n  nextPageToken: nextPageToken\n};\n\nreturn {\n  json: {\n    ok: true,\n    brick: 'gmail.search_messages',\n    brickVersion: 'v1',\n    timestamp: new Date().toISOString(),\n    requestId: validationData.requestId,\n    cached: false,\n    data: responseData\n  }\n};"
+      },
+      "id": "process-response",
+      "name": "Process Gmail Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Input Validation & Cache Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Validation & Cache Key": {
+      "main": [
+        [
+          {
+            "node": "Gmail Search Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Search Messages": {
+      "main": [
+        [
+          {
+            "node": "Gmail Get Message Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Get Message Details": {
+      "main": [
+        [
+          {
+            "node": "Process Gmail Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "gmail-search-messages-v1"
+}

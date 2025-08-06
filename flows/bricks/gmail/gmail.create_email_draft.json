@@ -1,0 +1,101 @@
+{
+  "name": "gmail.create_email_draft",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "execute-workflow-trigger",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Input validation and processing - handles flat, nested, or wrapped (subInput)\nconst root = $json ?? {};                       // n8n runs Code per item, so $json is the item\nconst input = root.subInput ?? root;            // support accidental wrap: { subInput: {...} }\n\n// Handle both flat and nested input formats\nconst to = input.to ?? input.params?.to;\nconst subject = input.subject ?? input.params?.subject;\nconst body = input.body ?? input.params?.body;\nconst cc = input.cc ?? input.params?.cc;\nconst bcc = input.bcc ?? input.params?.bcc;\nconst attachments = input.attachments ?? input.params?.attachments;\nconst userId = input.userId ?? input.params?.userId ?? 'me';\nconst connectionId = input.connectionId;\nconst requestId = input.requestId ?? input.params?.requestId ?? null;\nconst tenantId = input.tenantId ?? input.params?.tenantId;\nconst idempotencyKey = input.idempotencyKey ?? input.params?.idempotencyKey;\n\n// Validate required fields\nif (!to) {\n  throw new Error('to field is required');\n}\n\nif (!subject) {\n  throw new Error('subject field is required');\n}\n\nif (!body) {\n  throw new Error('body field is required');\n}\n\nif (!connectionId) {\n  throw new Error('connectionId field is required');\n}\n\n// Validate email addresses\nconst emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nconst toEmails = Array.isArray(to) ? to : [to];\n\nfor (const email of toEmails) {\n  if (!emailRegex.test(email)) {\n    throw new Error(`Invalid email address: ${email}`);\n  }\n}\n\nif (cc) {\n  const ccEmails = Array.isArray(cc) ? cc : [cc];\n  for (const email of ccEmails) {\n    if (!emailRegex.test(email)) {\n      throw new Error(`Invalid CC email address: ${email}`);\n    }\n  }\n}\n\nif (bcc) {\n  const bccEmails = Array.isArray(bcc) ? bcc : [bcc];\n  for (const email of bccEmails) {\n    if (!emailRegex.test(email)) {\n      throw new Error(`Invalid BCC email address: ${email}`);\n    }\n  }\n}\n\n// Build MIME message\nfunction buildMimeMessage() {\n  const boundary = `----=_Part_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;\n  let mimeMessage = '';\n  \n  // Headers\n  mimeMessage += `To: ${toEmails.join(', ')}\\r\\n`;\n  if (cc) {\n    const ccEmails = Array.isArray(cc) ? cc : [cc];\n    mimeMessage += `Cc: ${ccEmails.join(', ')}\\r\\n`;\n  }\n  if (bcc) {\n    const bccEmails = Array.isArray(bcc) ? bcc : [bcc];\n    mimeMessage += `Bcc: ${bccEmails.join(', ')}\\r\\n`;\n  }\n  mimeMessage += `Subject: ${subject}\\r\\n`;\n  mimeMessage += `Content-Type: text/html; charset=utf-8\\r\\n`;\n  mimeMessage += `\\r\\n`;\n  mimeMessage += `${body}\\r\\n`;\n  \n  // Convert to base64url for Gmail API\n  const base64Message = Buffer.from(mimeMessage).toString('base64');\n  return base64Message.replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=/g, '');\n}\n\nconst mimeMessage = buildMimeMessage();\n\nreturn {\n  json: {\n    userId: userId,\n    tenantId: tenantId,\n    requestId: requestId,\n    connectionId: connectionId,\n    idempotencyKey: idempotencyKey,\n    \n    // >>> ADD THESE FOR GMAIL NODE UI <<<\n    to,                   // may be string or array\n    toEmails,             // always array\n    subject,\n    body,                 // text or HTML\n    cc: cc || null,       // optional, string|array|null\n    bcc: bcc || null,     // optional, string|array|null\n    \n    // keep for future raw usage\n    mimeMessage: mimeMessage\n  }\n};"
+      },
+      "id": "input-validation",
+      "name": "Input Validation & MIME Building",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "draft",
+        "operation": "create",
+        "userId": "={{ $json.userId }}",
+        "to": "={{ Array.isArray($('Input Validation & MIME Building').item.json.toEmails) ? $('Input Validation & MIME Building').item.json.toEmails.join(', ') : ($('Input Validation & MIME Building').item.json.to || '') }}",
+        "subject": "={{ $('Input Validation & MIME Building').item.json.subject }}",
+        "emailType": "html",
+        "message": "={{ $('Input Validation & MIME Building').item.json.body }}",
+        "additionalFields": {
+          "ccList": "={{ Array.isArray($('Input Validation & MIME Building').item.json.cc) ? $('Input Validation & MIME Building').item.json.cc.join(', ') : ($('Input Validation & MIME Building').item.json.cc || '') }}",
+          "bccList": "={{ Array.isArray($('Input Validation & MIME Building').item.json.bcc) ? $('Input Validation & MIME Building').item.json.bcc.join(', ') : ($('Input Validation & MIME Building').item.json.bcc || '') }}"
+        }
+      },
+      "id": "gmail-create-draft",
+      "name": "Gmail Create Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "credentials": {
+        "gmailOAuth2": "Gmail OAuth2"
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Response formatting with proper error handling\nconst input = $json;\nconst validationData = $node[\"Input Validation & MIME Building\"].json;\nconst timestamp = new Date().toISOString();\nconst brick = 'gmail.create_email_draft';\nconst brickVersion = 'v1';\n\ntry {\n  if (input.error) {\n    // Handle error from Gmail API\n    const error = input.error;\n    let errorCode = 'GMAIL_API_ERROR';\n    let retryable = false;\n    let retryAfterMs;\n    \n    if (error.httpCode) {\n      switch (error.httpCode) {\n        case 400:\n          errorCode = 'INVALID_REQUEST';\n          break;\n        case 401:\n          errorCode = 'AUTHENTICATION_FAILED';\n          break;\n        case 403:\n          errorCode = 'PERMISSION_DENIED';\n          break;\n        case 429:\n          errorCode = 'RATE_LIMIT_EXCEEDED';\n          retryable = true;\n          retryAfterMs = 60000;\n          break;\n        case 500:\n        case 502:\n        case 503:\n        case 504:\n          errorCode = 'SERVER_ERROR';\n          retryable = true;\n          retryAfterMs = 5000;\n          break;\n        default:\n          errorCode = 'GMAIL_API_ERROR';\n      }\n    }\n    \n    return {\n      json: {\n        ok: false,\n        brick,\n        brickVersion,\n        timestamp,\n        requestId: validationData.requestId,\n        error: {\n          code: errorCode,\n          message: error.message || 'Gmail API error occurred',\n          retryable,\n          retryAfterMs,\n          details: {\n            httpCode: error.httpCode,\n            service: 'gmail',\n            operation: 'create_draft'\n          }\n        }\n      }\n    };\n  }\n  \n  // Success response\n  const gmailResponse = input;\n  \n  return {\n    json: {\n      ok: true,\n      brick,\n      brickVersion,\n      timestamp,\n      requestId: validationData.requestId,\n      cached: false,\n      data: {\n        draftId: gmailResponse.id,\n        message: {\n          id: gmailResponse.message?.id,\n          threadId: gmailResponse.message?.threadId,\n          snippet: gmailResponse.message?.snippet\n        }\n      }\n    }\n  };\n  \n} catch (error) {\n  // Handle unexpected errors\n  return {\n    json: {\n      ok: false,\n      brick,\n      brickVersion,\n      timestamp,\n      requestId: validationData.requestId || null,\n      error: {\n        code: 'INTERNAL_ERROR',\n        message: error.message || 'Internal processing error',\n        retryable: false,\n        details: {\n          service: 'gmail',\n          operation: 'create_draft'\n        }\n      }\n    }\n  };\n}"
+      },
+      "id": "response-formatter",
+      "name": "Response Formatter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Input Validation & MIME Building",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Validation & MIME Building": {
+      "main": [
+        [
+          {
+            "node": "Gmail Create Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Create Draft": {
+      "main": [
+        [
+          {
+            "node": "Response Formatter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "gmail-create-draft-v1"
+}
